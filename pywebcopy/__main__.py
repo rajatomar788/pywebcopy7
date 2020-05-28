@@ -33,7 +33,7 @@ parser.add_option('--bypass_robots', default=True, action='store_true', help='By
 parser.add_option('-q', '--quite', default=False, action='store_true', help='Suppress the logging from this library.')
 parser.add_option('--pop', default=True, action='store_true',
                   help='open the html page in default browser window after finishing the task.')
-parser.add_option('-d', '--delay', default=None, help="Delay between consecutive requests to the server.")
+parser.add_option('-d', '--delay', default=0, type=int, help="Delay between consecutive requests to the server.")
 
 args, remainder = parser.parse_args()
 

@@ -12,11 +12,11 @@ import re
 from cgi import parse_header
 from collections import namedtuple
 from hashlib import md5
+from zlib import adler32
 
 from six import PY2
 from six import binary_type
 from six import string_types
-from six import text_type
 from six.moves.urllib.parse import unquote
 from six.moves.urllib.parse import urljoin
 
@@ -424,7 +424,7 @@ _filename_ascii_strip_re = re.compile(r'[^A-Za-z0-9_.-]+')
 
 
 def secure_filename(filename, sub='_'):
-    if isinstance(filename, text_type):
+    if isinstance(filename, string_types):
         from unicodedata import normalize
         filename = normalize('NFKD', filename).encode(
             _implicit_encoding, _implicit_errors)
@@ -459,8 +459,10 @@ def _filter_and_group_segments(url, remove_query=True, remove_frag=True):
         >>> _filter_and_group_segments(s, remove_query=False, remove_frag=False)
         >>> (('www.nx-domain.com', 'blog'), 'index_q_query_fragment')
 
-    :param url: url of which parts are to be processed
-    :rtype: tuple(list, str)
+    :param str url: url of which parts are to be processed
+    :param bool remove_query: whether to remove the query parameters from url.
+    :param bool remove_frag: whether to remove the fragment parameters from url.
+    :rtype: tuple
     :return: grouped parts
     """
     scheme, auth, host, port, path, query, fragment = parse_url(unquote(url))
@@ -469,64 +471,57 @@ def _filter_and_group_segments(url, remove_query=True, remove_frag=True):
     path = path if isinstance(path, string_types) else ''
     segments = path.lstrip('/').split('/')
 
-    dirname = host + tuple(secure_filename(i) for i in segments[:-1])
-    basename = secure_filename(segments[-1])
+    base = host + tuple(secure_filename(i) for i in segments[:-1])
+    leaf = secure_filename(segments[-1])
+    stem, ext = os.path.splitext(leaf)
     if not remove_query and isinstance(query, string_types):
-        basename = '_'.join(filter(None, (basename, secure_filename(query))))
+        stem = '_'.join(filter(None, (stem, secure_filename(query))))
     if not remove_frag and isinstance(fragment, string_types):
-        basename = '_'.join(filter(None, (basename, secure_filename(fragment))))
-    return dirname, basename
+        stem = '_'.join(filter(None, (stem, secure_filename(fragment))))
+    return base, stem, ext
 
 
 def _url2path(url,
               base_url=None,
+              etag=None,
               remove_query=None,
               remove_frag=None,
-              prefix_=None,
-              suffix_=None,
+              prefix=None,
+              suffix=None,
+              prefix_errors=None,
               suffix_errors=None):
     if not isinstance(url, string_types):
         raise TypeError('Expected url of type %r, got %r' % (string_types, url))
     if isinstance(base_url, string_types):
         url = urljoin(base_url, url)
 
-    hex_ = get_etag(url)[:8]  # only 8 chars long
-    # inner function to filter and group the required parts of the url
-    dirname, basename = _filter_and_group_segments(url, remove_query, remove_frag)
+    base, stem, ext = _filter_and_group_segments(
+        url, remove_query, remove_frag)
 
-    if not basename:
-        basename = hex_
-        if prefix_ and isinstance(prefix_, string_types):
-            basename = '_'.join(filter(None, (prefix_, basename)))
-        if suffix_ and isinstance(suffix_, string_types):
-            basename = ''.join((basename, suffix_))
-    else:
-        head, ext = os.path.splitext(basename)
-        patch = hex_
-        # workaround for the names of type '.more.sub.ext'
-        if head and head[:1] == '.':
-            head = head[:0]  # empty the head
-        if prefix_ and isinstance(prefix_, string_types):
-            if len(head) < 1:
-                patch = '_'.join(filter(None, (prefix_, hex_)))
-        # redundantly put the patch in between the head and tail
-        basename = '_'.join(filter(
-            None, (
-                basename[:len(head)],
-                ''.join(filter(None, (patch, basename[len(head):])))
-            )))
-        # if not ext:  # add a extension for os compat
-        # XXX if present append the suffix only if mismatch
-        if suffix_ and isinstance(suffix_, string_types):
-            if ext.lower() != suffix_.lower():
-                if suffix_errors == 'replace':
-                    basename = ''.join((basename[:-len(ext)], suffix_))
-                #: default behaviour is to append it.
-                elif suffix_errors == 'ignore':
-                    pass
-                else:
-                    basename = ''.join((basename, suffix_))
-    return tuple(dirname), basename
+    if prefix and isinstance(prefix, string_types):
+        if prefix_errors == 'append':
+            stem = '_'.join(filter(None, (prefix, stem)))
+        elif prefix_errors == 'replace':
+            stem = prefix
+        else:
+            if not stem:
+                stem = prefix
+
+    if not stem or etag:
+        if not isinstance(etag, string_types):
+            etag = str(adler32(url.encode(_implicit_encoding, _implicit_errors)))
+        stem = '.'.join(filter(None, (stem, etag)))
+
+    if suffix and isinstance(suffix_errors, string_types):
+        # avoid appending if it is equal to existing ext.
+        if suffix_errors == 'append' and ext != suffix:
+            ext = ''.join(filter(None, (ext, suffix)))
+        elif suffix_errors == 'replace':
+            ext = suffix
+        else:
+            if not ext:
+                ext = suffix
+    return tuple(base), ''.join((stem, ext))
 
 
 @lru_cache()
@@ -534,11 +529,13 @@ def url2path(url,
              base_url=None,
              base_path=None,
              tree_type=HIERARCHY,
+             etag=None,
              remove_query=None,
              remove_frag=None,
-             prefix_=None,
-             suffix_=None,
-             suffix_errors='append'):
+             prefix=None,
+             suffix=None,
+             prefix_errors=None,
+             suffix_errors=None):
     """Automated disk path generator for urls.
 
     The urls not always contain a proper filename at which
@@ -579,10 +576,16 @@ def url2path(url,
         >>> r'nx-domain.com\\path\\to\\file'
 
     """
-    url, base_url, base_path, prefix_, suffix_, _encode = _coerce_args(
-        url, base_url, base_path, prefix_, suffix_)
+    url, base_url, base_path, prefix, suffix, _encode = _coerce_args(
+        url, base_url, base_path, prefix, suffix)
 
-    dirname, basename = _url2path(url, base_url, remove_query, remove_frag, prefix_, suffix_, suffix_errors)
+    dirname, basename = _url2path(
+        url, base_url, etag, remove_query, remove_frag,
+        prefix, suffix, prefix_errors, suffix_errors)
+
+    if isinstance(base_path, string_types) and '~' in base_path:
+        base_path = os.path.expanduser(base_path)
+
     # hierarchy or a linear tree
     if tree_type == LINEAR:
         if isinstance(base_path, string_types):
@@ -615,8 +618,8 @@ def from_content_type(response, base_url=None, base_path=None, tree_type=HIERARC
         base_url=base_url,
         base_path=base_path,
         tree_type=tree_type,
-        prefix_=get_prefix(ctypes),
-        suffix_=get_suffix(ctypes)
+        prefix=get_prefix(ctypes),
+        suffix=get_suffix(ctypes)
     )
 
 
@@ -701,6 +704,6 @@ class Context(namedtuple('Context', context_attrs)):
             base_url=self.base_url,
             base_path=self.base_path,
             tree_type=self.tree_type,
-            prefix_=prefix, suffix_=suffix,
+            prefix=prefix, suffix=suffix,
             suffix_errors='append'
         )

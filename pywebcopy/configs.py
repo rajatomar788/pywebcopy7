@@ -224,9 +224,9 @@ def get_config(project_url, project_folder=None, project_name=None, bypass_robot
     If the project_folder is not supplied it will use the users Tempdir.
     """
     if not isinstance(project_url, string_types):
-        raise ConfigError(project_url)
+        raise ConfigError("Expected string type, got %r" % project_url)
     if project_folder and not isinstance(project_folder, string_types):
-        raise ConfigError(project_folder)
+        raise ConfigError("Expected string type, got %r" % project_folder)
 
     if not project_folder:
         logger.debug('No project folder provided, %temp% dir will be used instead.')

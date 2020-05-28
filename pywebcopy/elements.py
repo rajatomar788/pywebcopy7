@@ -16,7 +16,7 @@ from textwrap import dedent
 from lxml.html import HtmlComment
 from lxml.html import tostring
 from six import binary_type
-from six import text_type
+from six import string_types
 from six.moves.urllib.request import pathname2url
 
 from .__version__ import __version__
@@ -124,16 +124,17 @@ class GenericResource(object):
     def set_response(self, response):
         """Update the response attribute of this object. Additionally updating the content_type."""
         self.response = response
-        #: Clear the cached properties
-        self.__dict__.pop('content_type', None)
+        self.__dict__.pop('url', None)
         self.__dict__.pop('filepath', None)
         self.__dict__.pop('filename', None)
-        self.__dict__.pop('url', None)
-        self.__dict__.pop('encoding', None)
-        self.context = self.context.with_values(
-            url=response.url,
-            content_type=self.content_type
-        )
+        if response.ok:
+            #: Clear the cached properties
+            self.__dict__.pop('content_type', None)
+            self.__dict__.pop('encoding', None)
+            self.context = self.context.with_values(
+                url=response.url,
+                content_type=self.content_type
+            )
 
     @cached_property
     def filepath(self):
@@ -164,31 +165,24 @@ class GenericResource(object):
     def encoding(self):
         if self.response is not None:
             #: Explicit encoding takes precedence
-            self.config.get('encoding', self.response.encoding)
-        return self.config.get('encoding', 'utf-8')
+            return self.config.get('encoding', self.response.encoding or 'ascii')
+        return self.config.get('encoding', 'ascii')
 
-    valid_html_content_types = tuple([
+    html_content_types = tuple([
         'text/htm',
         'text/html',
         'text/xhtml'
     ])
 
     def viewing_html(self):
-        return self.content_type in self.valid_html_content_types
+        return self.content_type in self.html_content_types
 
-    valid_css_content_types = tuple([
-        'text/css'
+    css_content_types = tuple([
+        'text/css',
     ])
 
     def viewing_css(self):
-        return self.content_type in self.valid_css_content_types
-
-    invalid_schemas = tuple([
-        'data', 'javascript', 'mailto',
-    ])
-
-    def invalid_schema(self, url):
-        return url.startswith(self.invalid_schemas)
+        return self.content_type in self.css_content_types
 
     def get(self, url, **params):
         """Fetches the Html content from Internet using the requests.
@@ -211,9 +205,9 @@ class GenericResource(object):
     def resolve(self, parent_path=None):
         """Calculates the location at which this response should be stored as a file."""
         filepath = self.filepath
-        if not isinstance(filepath, text_type):
+        if not isinstance(filepath, string_types):
             raise ValueError("Invalid filepath [%r]" % filepath)
-        if parent_path and isinstance(parent_path, text_type):
+        if parent_path and isinstance(parent_path, string_types):
             return pathname2url(relate(filepath, parent_path))
         return pathname2url(filepath)
 
@@ -226,12 +220,7 @@ class GenericResource(object):
 
         if raw_fp:
             if hasattr(self.response.raw, 'closed') and self.response.raw.closed:
-                if hasattr(self.response, 'from_cache'):
-                    if self.response.from_cache:
-                        return BytesIO(self.response.content), self.encoding
-                #: Re-fetch the content from the server as the connection
-                #: has been closed or the stream has exhausted
-                self.response = self.session.send(self.response.request)
+                self.response = self.session.get(self.url)
             self.response.raw.decode_content = True
             return self.response.raw, self.encoding
         return self.response.content, self.encoding
@@ -243,10 +232,7 @@ class GenericResource(object):
                 "Response attribute is not set!"
                 "You need to fetch the resource using get method!"
             )
-
-        # indexed = self._get_or_set_index()
-        # if indexed:
-        #     return indexed
+        # FIXME: Validate resource here?
         return self._retrieve()
 
     def _retrieve(self):
@@ -262,38 +248,16 @@ class GenericResource(object):
                 content = BytesIO(self.response.reason.encode(self.encoding))
         else:
             if not hasattr(self.response, 'raw'):
-                self.logger.error("Response object for url <%s> has no attribute 'raw'!" % self.url)
+                self.logger.error(
+                    "Response object for url <%s> has no attribute 'raw'!" % self.url)
                 content = BytesIO(self.response.content)
             else:
                 content = self.response.raw
 
-        retrieve_resource(content, self.filepath, self.context.url, self.config.get('overwrite'))
+        retrieve_resource(
+            content, self.filepath, self.context.url, self.config.get('overwrite'))
         del content
         return self.filepath
-
-    # def _get_or_set_index(self):
-    #     #: Update the index before doing any processing so that later calls
-    #     #: in index finds this entry without going in infinite recursion
-    #     #: Response could have been already present on disk
-    #     indexed = self.scheduler.index.get(self.response.url)
-    #     if indexed:
-    #         self.logger.debug(
-    #             "Resource [%s] is already available in the index at [%s]"
-    #             % (self.url, indexed)
-    #         )
-    #         return indexed
-    #     self.scheduler.index[self.context.url] = self.filepath
-    #     self.scheduler.index[self.response.url] = self.filepath
-    #     for r in self.response.history:
-    #         self.scheduler.index[r.url] = self.filepath
-
-    def _get_watermark(self):
-        return dedent("""
-        * PyWebCopy Engine [version %s]
-        * Copyright 2020; Raja Tomar
-        * File mirrored from '%s'
-        * At UTC datetime: %s
-        """) % (__version__, self.response.url, datetime.utcnow())
 
 
 class HTMLResource(GenericResource):
@@ -311,33 +275,28 @@ class HTMLResource(GenericResource):
         location = self.filepath
 
         for elem, attr, url, pos in parsing_buffer:
-
-            if self.invalid_schema(url):
-                self.logger.error(
-                    "Invalid url schema: [%s] for url: [%s]"
-                    % (url.split(':', 1)[0], url)
-                )
+            if self.scheduler.validate_url(url):
                 continue
 
             sub_context = self.context.create_new_from_url(url)
-
             ans = self.scheduler.get_handler(
                 elem.tag,
-                self.session, self.config, self.scheduler, sub_context
-            )
-            # self.children.add(ans)
+                self.session, self.config, self.scheduler, sub_context)
             self.scheduler.handle_resource(ans)
             resolved = ans.resolve(location)
             elem.replace_url(url, resolved, attr, pos)
+
         return parsing_buffer
 
     def _retrieve(self):
         if not self.viewing_html():
-            self.logger.info("Resource of type [%s] is not HTML." % self.content_type)
+            self.logger.info(
+                "Resource of type [%s] is not HTML." % self.content_type)
             return super(HTMLResource, self)._retrieve()
 
         if not self.response.ok:
-            self.logger.debug("Resource at [%s] is NOT ok and will be NOT processed." % self.url)
+            self.logger.debug(
+                "Resource at [%s] is NOT ok and will be NOT processed." % self.url)
             return super(HTMLResource, self)._retrieve()
 
         parsing_buffer = self.parse()
@@ -367,6 +326,14 @@ class HTMLResource(GenericResource):
         del parsing_buffer, rewritten
         return self.filepath
 
+    def _get_watermark(self):
+        return dedent("""
+        * PyWebCopy Engine [version %s]
+        * Copyright 2020; Raja Tomar
+        * File mirrored from [%s]
+        * At UTC datetime: [%s]
+        """) % (__version__, self.response.url, datetime.utcnow())
+
 
 class CSSResource(GenericResource):
     def parse(self):
@@ -379,11 +346,7 @@ class CSSResource(GenericResource):
         url, _ = unquote_match(match.group(1).decode(encoding), match.start(1))
         self.logger.debug("Sub-Css resource found: [%s]" % url)
 
-        if self.invalid_schema(url):
-            self.logger.error(
-                "Invalid url schema: [%s] for url: [%s]"
-                % (url.split(':', 1)[0], url)
-            )
+        if self.scheduler.validate_url(url):
             return url.encode(encoding)
 
         sub_context = self.context.create_new_from_url(url)

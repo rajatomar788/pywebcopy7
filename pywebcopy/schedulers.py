@@ -6,6 +6,8 @@ import weakref
 
 from requests import ConnectionError
 from six import PY3
+from six import string_types
+from six.moves.urllib.parse import urlparse
 
 from .elements import CSSResource
 from .elements import GenericOnlyResource
@@ -55,6 +57,7 @@ class SchedulerBase(object):
         self.data.update(data)
         self.default = default
         self.index = Index()
+        self.block_external_domains = True
         self.logger = logger.getChild(self.__class__.__name__)
 
     def set_default(self, default):
@@ -81,7 +84,58 @@ class SchedulerBase(object):
         else:
             return self.data[key](*args, **params)
 
+    invalid_schemas = tuple([
+        'data', 'javascript', 'mailto',
+    ])
+
+    def validate_url(self, url):
+        if not isinstance(url, string_types):
+            self.logger.error(
+                "Expected string type, got %r" % url)
+            return False
+        scheme, host, port, path, query, frag = urlparse(url)
+        if scheme in self.invalid_schemas:
+            self.logger.error(
+                "Invalid url schema: [%s] for url: [%s]"
+                % (scheme, url))
+            return False
+        return True
+
+    def validate_resource(self, resource):
+        if not isinstance(resource, GenericResource):
+            self.logger.error(
+                "Expected GenericResource, got %r" % resource)
+            return False
+        if not isinstance(resource.url, string_types):
+            self.logger.error(
+                "Expected url of string type, got %r" % resource.url)
+            return False
+        elif isinstance(resource, HTMLResource) and self.block_external_domains:
+            if not resource.context.url.startswith(resource.context.base_url):
+                self.logger.error(
+                    "Blocked WebPage on external domain: %s" % resource.url)
+                return False
+        return self.validate_url(resource.url)
+
     def handle_resource(self, resource):
+        indexed = self.index.get_entry(resource.url)
+        if indexed:
+            self.logger.debug(
+                "[Cache] Resource Key: [%s] is available in the cache with value: [%s]"
+                % (resource.url, indexed)
+            )
+            # modify the resources path resolution mechanism.
+            return resource.__dict__.__setitem__('filepath', indexed)
+
+        #: Update the index before doing any processing so that later calls
+        #: in index finds this entry without going in infinite recursion
+        #: Response could have been already present on disk
+        self.index.add_entry(resource.url, resource.filepath)
+
+        if self.validate_resource(resource):
+            return self._handle_resource(resource)
+
+    def _handle_resource(self, resource):
         raise NotImplementedError()
 
 
@@ -92,33 +146,17 @@ class Collector(SchedulerBase):
         super(Collector, self).__init__(*args, **kwargs)
         self.children = list()
 
-    def handle_resource(self, resource):
+    def _handle_resource(self, resource):
         self.children.append(resource)
 
 
 class Scheduler(SchedulerBase):
-
-    def handle_resource(self, resource):
-        #: Update the index before doing any processing so that later calls
-        #: in index finds this entry without going in infinite recursion
-        #: Response could have been already present on disk
-        indexed = self.index.get_entry(resource.url)
-        if not indexed:
-            self.index.add_entry(resource.url, resource.filepath)
-            return self._handle_resource(resource)
-
-        self.logger.debug(
-            "Resource [%s] is already available in the index at [%s]"
-            % (resource.url, indexed)
-        )
-        # modify the resources path resolution mechanism.
-        resource.__dict__.__setitem__('filepath', indexed)
-
     def _handle_resource(self, resource):
         try:
             self.logger.debug('Scheduler trying to get resource at: [%s]' % resource.url)
-            # NOTE `get` method can change the `filepath` attribute of the resource
             resource.get(resource.context.url)
+            # NOTE :meth:`.get` can change the :attr:`.filepath` of the resource
+            self.index.add_resource(resource)
         except ConnectionError:
             self.logger.error(
                 "Scheduler ConnectionError Failed to retrieve resource from [%s]"

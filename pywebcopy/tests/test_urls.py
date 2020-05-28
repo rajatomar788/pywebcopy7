@@ -2,9 +2,9 @@
 # See license for more details
 import os.path
 import hashlib
+import unittest
 import six
 
-from unittest2 import TestCase
 import pywebcopy.urls
 from pywebcopy.urls import get_etag
 from pywebcopy.urls import split_first
@@ -20,12 +20,7 @@ from pywebcopy.urls import relate
 from pywebcopy.urls import secure_filename
 
 
-# [
-#     'url2path', 'filename_present',
-#     'secure_filename',
-# ]
-
-class TestBasicTools(TestCase):
+class TestBasicTools(unittest.TestCase):
     def test_get_etag_non_binary(self):
         data = 'data'
         self.assertEqual(hashlib.md5(data.encode()).hexdigest(), get_etag(data))
@@ -96,24 +91,24 @@ class TestBasicTools(TestCase):
         self.assertEqual(relate('css/style.css', 'html/'), os.path.normpath('../css/style.css'))
 
 
-class TestUrl2Path(TestCase):
+class TestUrl2Path(unittest.TestCase):
     def test_filter_and_group_url_with_stem(self):
         s = 'http://www.nx-domain.com/blog/index?q=query#fragment'
         self.assertEqual(pywebcopy.urls._filter_and_group_segments(s, remove_query=True, remove_frag=True),
-                         (('www.nx-domain.com', 'blog'), 'index'))
+                         (('www.nx-domain.com', 'blog'), 'index', ''))
         self.assertEqual(pywebcopy.urls._filter_and_group_segments(s, remove_query=False, remove_frag=True),
-                         (('www.nx-domain.com', 'blog'), 'index_q_query'))
+                         (('www.nx-domain.com', 'blog'), 'index_q_query', ''))
         self.assertEqual(pywebcopy.urls._filter_and_group_segments(s, remove_query=False, remove_frag=False),
-                         (('www.nx-domain.com', 'blog'), 'index_q_query_fragment'))
+                         (('www.nx-domain.com', 'blog'), 'index_q_query_fragment', ''))
 
     def test_filter_and_group_url_without_stem(self):
         s = 'http://www.nx-domain.com/blog/?q=query#fragment'
         self.assertEqual(pywebcopy.urls._filter_and_group_segments(s, remove_query=True, remove_frag=True),
-                         (('www.nx-domain.com', 'blog'), ''))
+                         (('www.nx-domain.com', 'blog'), '', ''))
         self.assertEqual(pywebcopy.urls._filter_and_group_segments(s, remove_query=False, remove_frag=True),
-                         (('www.nx-domain.com', 'blog'), 'q_query'))
+                         (('www.nx-domain.com', 'blog'), 'q_query', ''))
         self.assertEqual(pywebcopy.urls._filter_and_group_segments(s, remove_query=False, remove_frag=False),
-                         (('www.nx-domain.com', 'blog'), 'q_query_fragment'))
+                         (('www.nx-domain.com', 'blog'), 'q_query_fragment', ''))
 
     def test_coerce_args_with_non_consistent_types(self):
         with self.assertRaises(TypeError):
@@ -147,7 +142,3 @@ class TestUrl2Path(TestCase):
                   "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"]:
             with self.subTest(i=i):
                 self.assertEqual(secure_filename(i), '_' + i)
-
-
-class TestContext(TestCase):
-    pass
