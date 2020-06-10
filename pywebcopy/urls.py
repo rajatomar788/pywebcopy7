@@ -512,7 +512,7 @@ def _url2path(url,
             etag = str(adler32(url.encode(_implicit_encoding, _implicit_errors)))
         stem = '.'.join(filter(None, (stem, etag)))
 
-    if suffix and isinstance(suffix_errors, string_types):
+    if suffix and isinstance(suffix, string_types):
         # avoid appending if it is equal to existing ext.
         if suffix_errors == 'append' and ext != suffix:
             ext = ''.join(filter(None, (ext, suffix)))

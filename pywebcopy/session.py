@@ -158,10 +158,12 @@ class Session(requests.Session):
         if not self.is_allowed(request, kwargs.get('timeout', None)):
             self.logger.error("Access to [%r] disallowed by the robots.txt rules.", request.url)
             raise RobotsTxtDisallowed("Access to [%r] disallowed by the robots.txt rules." % request.url)
-        self.logger.info('[%s] [%s]' % (request.method, request.url))
+
         if isinstance(self.delay, integer_types):
             self.logger.debug('Waiting on [%s] request until [%d]' % (request.url, self.delay))
             self.waiter.wait(self.delay)
+
+        self.logger.info('[%s] [%s]' % (request.method, request.url))
         return super(Session, self).send(request, **kwargs)
 
     @classmethod

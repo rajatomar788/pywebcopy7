@@ -111,9 +111,11 @@ class SchedulerBase(object):
                 "Expected url of string type, got %r" % resource.url)
             return False
         elif isinstance(resource, HTMLResource) and self.block_external_domains:
-            if not resource.context.url.startswith(resource.context.base_url):
+            # FIXME: Change the algorithm to evaluate redirects.
+            # print(resource.url, resource.context)
+            if not resource.url.startswith(resource.context.base_url):
                 self.logger.error(
-                    "Blocked WebPage on external domain: %s" % resource.url)
+                    "Blocked resource on external domain: %s" % resource.url)
                 return False
         return self.validate_url(resource.url)
 
@@ -130,10 +132,12 @@ class SchedulerBase(object):
         #: Update the index before doing any processing so that later calls
         #: in index finds this entry without going in infinite recursion
         #: Response could have been already present on disk
-        self.index.add_entry(resource.url, resource.filepath)
+        # self.index.add_entry(resource.context.url, resource.filepath)
 
         if self.validate_resource(resource):
+            self.logger.info("Processing valid resource: %r" % resource)
             return self._handle_resource(resource)
+        self.logger.error("Discarding invalid resource: %r" % resource)
 
     def _handle_resource(self, resource):
         raise NotImplementedError()
@@ -160,8 +164,7 @@ class Scheduler(SchedulerBase):
         except ConnectionError:
             self.logger.error(
                 "Scheduler ConnectionError Failed to retrieve resource from [%s]"
-                % resource.url
-            )
+                % resource.url)
             # self.index.add_entry(resource.url, resource.filepath)
         except Exception as e:
             self.logger.exception(e)
@@ -169,8 +172,7 @@ class Scheduler(SchedulerBase):
         else:
             self.logger.debug('Scheduler running handler for: [%s]' % resource.url)
             resource.retrieve()
-        finally:
-            self.index.add_resource(resource)
+        self.index.add_resource(resource)
 
 
 class ThreadingScheduler(Scheduler):

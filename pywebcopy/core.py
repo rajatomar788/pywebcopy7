@@ -1,5 +1,6 @@
 # Copyright 2020; Raja Tomar
 # See license for more details
+import os
 import logging
 from operator import attrgetter
 
@@ -72,7 +73,9 @@ class WebPage(HTMLResource):
         #
         # location = self.retrieve()
         self.scheduler.handle_resource(self)
-        if pop:
+        if pop and os.path.exists(self.filepath):
+            self.logger.info(
+                "Opening default browser with file: %s" % self.filepath)
             import webbrowser
             webbrowser.open('file:///' + self.filepath)
 

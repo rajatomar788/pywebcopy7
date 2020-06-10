@@ -261,14 +261,20 @@ class GenericResource(object):
 
 
 class HTMLResource(GenericResource):
+    def get_forms(self):
+        raise NotImplementedError()
+
+    def submit_form(self, form):
+        raise NotImplementedError()
+
     def parse(self, **kwargs):
         source, encoding = super(HTMLResource, self).get_source(raw_fp=True)
         return iterparse(source, encoding, collect_ids=False, **kwargs)
 
-    def files(self):
+    def get_files(self):
         return (e[2] for e in self.parse())
 
-    def links(self):
+    def get_links(self):
         return (e[2] for e in self.parse() if e[0].tag == 'a')
 
     def extract_children(self, parsing_buffer):
