@@ -38,12 +38,12 @@ class WebPage(HTMLResource):
         doc="Registry of different handler for different tags."
     )
 
-    def get_html(self, url):
+    def scrape_html(self, url):
         response = self.session.get(url)
         response.raise_for_status()
         return response.content
 
-    def get_links(self, url):
+    def scrape_links(self, url):
         response = self.session.get(url)
         response.raise_for_status()
         return response.links()
@@ -70,8 +70,7 @@ class WebPage(HTMLResource):
 
         #: NOTE Start with indexing self
         # self.scheduler.index.add_resource(self)
-        #
-        # location = self.retrieve()
+
         self.scheduler.handle_resource(self)
         if pop and os.path.exists(self.filepath):
             self.logger.info(

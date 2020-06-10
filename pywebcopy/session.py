@@ -79,7 +79,7 @@ class Session(requests.Session):
         except ImportError:
             raise ImportError(
                 "cachecontrol module is not installed."
-                " Install it like from pip: $ pip install cachecontrol"
+                " Install it like this from pip: $ pip install cachecontrol"
             )
         self.mount('https://', cachecontrol.CacheControlAdapter())
         self.mount('http://', cachecontrol.CacheControlAdapter())

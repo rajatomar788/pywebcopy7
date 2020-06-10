@@ -159,7 +159,7 @@ class Scheduler(SchedulerBase):
         try:
             self.logger.debug('Scheduler trying to get resource at: [%s]' % resource.url)
             resource.get(resource.context.url)
-            # NOTE :meth:`.get` can change the :attr:`.filepath` of the resource
+            # NOTE :meth:`get` can change the :attr:`filepath` of the resource
             self.index.add_resource(resource)
         except ConnectionError:
             self.logger.error(

@@ -153,7 +153,7 @@ class GenericResource(object):
     def content_type(self):
         if self.response is not None and 'Content-Type' in self.response.headers:
             return get_content_type_from_headers(self.response.headers)
-        raise AttributeError("Response attribute is not set!")
+        return ''
 
     @cached_property
     def url(self):
@@ -281,7 +281,7 @@ class HTMLResource(GenericResource):
         location = self.filepath
 
         for elem, attr, url, pos in parsing_buffer:
-            if self.scheduler.validate_url(url):
+            if not self.scheduler.validate_url(url):
                 continue
 
             sub_context = self.context.create_new_from_url(url)
@@ -325,9 +325,9 @@ class HTMLResource(GenericResource):
 
         # rewritten.root.getroottree().write(self.filepath, method='html')
         retrieve_resource(
-            tostring(rewritten.root, include_meta_content_type=True),
-            self.filepath, self.context.url, overwrite=True
-        )
+            BytesIO(tostring(rewritten.root, include_meta_content_type=True)),
+            self.filepath, self.context.url, overwrite=True)
+
         self.logger.info('Retrieved content from the url: [%s]' % self.url)
         del parsing_buffer, rewritten
         return self.filepath
@@ -352,7 +352,7 @@ class CSSResource(GenericResource):
         url, _ = unquote_match(match.group(1).decode(encoding), match.start(1))
         self.logger.debug("Sub-Css resource found: [%s]" % url)
 
-        if self.scheduler.validate_url(url):
+        if not self.scheduler.validate_url(url):
             return url.encode(encoding)
 
         sub_context = self.context.create_new_from_url(url)
