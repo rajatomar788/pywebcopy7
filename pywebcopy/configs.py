@@ -81,13 +81,18 @@ default_config = {
     'project_folder': None,
     'delay': None,
     'tree_type': HIERARCHY,
+
+    # TODO: Allow a last modified overwrite mode
     'overwrite': False,
+
     'bypass_robots': False,
     'http_cache': False,
-    'http_headers': default_headers(),
+    'http_headers': default_headers(**safe_http_headers),
 
-    # XXX Disabled for now until I figure it out.
+    # TODO: Disabled for now until I figure it out.
     # 'allowed_file_types': safe_file_types,
+
+    # TODO: domain blocking and whitelisting
 }
 
 
@@ -110,6 +115,9 @@ class ConfigHandler(CaseInsensitiveDict):
         if isinstance(item, string_types) and item.startswith('set_'):
             if item[4:] in self:
                 return partial(self.__setitem__, item[4:])
+        if isinstance(item, string_types) and item.startswith('get_'):
+            if item[4:] in self:
+                return partial(self.__getitem__, item[4:])
         return super(ConfigHandler, self).__getattribute__(item)
 
     def reset_config(self):
@@ -140,7 +148,7 @@ class ConfigHandler(CaseInsensitiveDict):
         .. version changed :: 6.1.0
             FIX: fixed path issue when using relative path for project_folder
 
-        .. version changed :: 7.0.0
+        .. version changed :: 6.3.0
             FIX: Removed file based logging.
             FIX: Disabled dir change on setup
 
@@ -219,7 +227,12 @@ class ConfigHandler(CaseInsensitiveDict):
         return WebPage.from_config(self)
 
 
-def get_config(project_url, project_folder=None, project_name=None, bypass_robots=False, debug=False, delay=None):
+def get_config(project_url,
+               project_folder=None,
+               project_name=None,
+               bypass_robots=False,
+               debug=False,
+               delay=None):
     """Create a ConfigHandler instance and return it.
     If the project_folder is not supplied it will use the users Tempdir.
     """

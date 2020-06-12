@@ -91,7 +91,7 @@ def lru_cache(maxsize=255, timeout=None):
             # Remove the cache for the caller, only if exists:
             if caller in self._caches_dict:
                 del self._caches_dict[caller]
-                self._caches_dict[caller] = [RecentOrderedDict(), time.time()]
+                self._caches_dict[caller] = [OrderedDict(), time.time()]
 
         def __get__(self, obj, obj_type):
             """ Called for instance methods """
@@ -115,7 +115,7 @@ def lru_cache(maxsize=255, timeout=None):
 
             # Check if caller exists, if not create one:
             if caller not in self._caches_dict:
-                self._caches_dict[caller] = [RecentOrderedDict(), time.time()]
+                self._caches_dict[caller] = [OrderedDict(), time.time()]
             else:
                 # Validate in case the refresh time has passed:
                 if self._timeout is not None:

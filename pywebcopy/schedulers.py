@@ -9,6 +9,7 @@ from six import PY3
 from six import string_types
 from six.moves.urllib.parse import urlparse
 
+from .elements import VoidResource
 from .elements import CSSResource
 from .elements import GenericOnlyResource
 from .elements import GenericResource
@@ -40,10 +41,10 @@ class Index(RecentOrderedDict):
 
 
 class SchedulerBase(object):
-    """
+    """A Synchronised resource processor.
        File paths would be based on the content-type header returned by the server
        but this would be slow because of being synchronous but is very reliable.
-       """
+    """
     style_tags = frozenset(['link', 'style'])
     img_tags = frozenset(['img'])
     script_tags = frozenset(['script'])
@@ -106,6 +107,10 @@ class SchedulerBase(object):
             self.logger.error(
                 "Expected GenericResource, got %r" % resource)
             return False
+        if isinstance(resource, VoidResource):
+            self.logger.error(
+                "Skipping VoidResource: %r" % resource)
+            return False
         if not isinstance(resource.url, string_types):
             self.logger.error(
                 "Expected url of string type, got %r" % resource.url)
@@ -132,7 +137,7 @@ class SchedulerBase(object):
         #: Update the index before doing any processing so that later calls
         #: in index finds this entry without going in infinite recursion
         #: Response could have been already present on disk
-        # self.index.add_entry(resource.context.url, resource.filepath)
+        self.index.add_entry(resource.context.url, resource.filepath)
 
         if self.validate_resource(resource):
             self.logger.info("Processing valid resource: %r" % resource)

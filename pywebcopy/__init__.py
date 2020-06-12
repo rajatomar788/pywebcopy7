@@ -7,9 +7,9 @@
       /____/                               /_/    /____/
 
 PyWebCopy is a free tool for copying full or partial websites locally
-onto your harddisk for offline viewing.
+onto your hard-disk for offline viewing.
 
-PyWebCopy will scan the specified website and download its content onto your harddisk.
+PyWebCopy will scan the specified website and download its content onto your hard-disk.
 Links to resources such as style-sheets, images, and other pages in the website
 will automatically be remapped to match the local path.
 Using its extensive configuration you can define which parts of a website will be copied and how.
@@ -27,7 +27,7 @@ If a website makes heavy use of JavaScript to operate, it is unlikely PyWebCopy 
 to make a true copy if it is unable to discover all of the website due to
 JavaScript being used to dynamically generate links.
 
-WebCopy does not download the raw source code of a web site,
+PyWebCopy does not download the raw source code of a web site,
 it can only download what the HTTP server returns.
 While it will do its best to create an offline copy of a website,
 advanced data driven websites may not work as expected once they have been copied.

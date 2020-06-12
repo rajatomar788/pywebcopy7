@@ -23,7 +23,7 @@ class RobotsTxtDisallowed(RequestException):
     """Access to requested url disallowed by the robots.txt rules."""
 
 
-def default_headers():
+def default_headers(**kwargs):
     """
     :rtype: requests.structures.CaseInsensitiveDict
     """
@@ -32,7 +32,7 @@ def default_headers():
         'Accept-Encoding': ', '.join(('gzip', 'deflate')),
         'Accept': '*/*',
         'Connection': 'keep-alive',
-    })
+    }, **kwargs)
 
 
 def check_connection(host=None, port=None, timeout=None):
