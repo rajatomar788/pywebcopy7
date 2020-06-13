@@ -43,7 +43,8 @@ class TestConfigs(unittest.TestCase):
         self.assertTrue(isinstance(page.scheduler, Scheduler))
         self.assertEqual(page.session.obey_robots_txt, not ans.get('bypass_robots'))
         self.assertEqual(page.session.delay, ans.get('delay'))
-        self.assertEqual(page.session.headers, configs.default_headers())
+        self.assertEqual(page.session.headers,
+                         configs.default_headers(**configs.safe_http_headers))
 
 
 class TestGetConfigFactory(unittest.TestCase):

@@ -4,6 +4,10 @@ import os
 import logging
 from operator import attrgetter
 
+from lxml.html import parse
+from lxml.html import HTMLParser
+from lxml.html import XHTML_NAMESPACE
+
 from .elements import HTMLResource
 from .schedulers import default_scheduler
 from .schedulers import crawler_scheduler
@@ -13,6 +17,19 @@ from .urls import parse_url
 __all__ = ['WebPage', 'Crawler']
 
 logger = logging.getLogger(__name__)
+
+
+class State(object):
+    """Used by :class:`WebPage` to store current resource content
+    to minimize the number of requests made while working with a page.
+    """
+
+    @classmethod
+    def from_response(cls, response):
+        raise NotImplementedError()
+
+    def read(self, n=None):
+        raise NotImplementedError()
 
 
 class WebPage(HTMLResource):
@@ -37,6 +54,53 @@ class WebPage(HTMLResource):
         attrgetter('scheduler.data'),
         doc="Registry of different handler for different tags."
     )
+
+    def get_forms(self):
+        """Returns a list of form elements available on the page."""
+        source, encoding = super(HTMLResource, self).get_source(raw_fp=True)
+        return parse(
+            source, parser=HTMLParser(encoding=encoding, collect_ids=False)
+        ).xpath(
+            "descendant-or-self::form|descendant-or-self::x:form",
+            namespaces={'x': XHTML_NAMESPACE}
+        )
+
+    def submit_form(self, form, **extra_values):
+        """
+        Helper function to submit a form.
+
+        You can use this like::
+
+            wp = HTMLResource()
+            wp.get('http://httpbin.org/forms/')
+            form = wp.get_forms()[0]
+            form.inputs['foo'].value = 'bar' # etc
+            wp.submit_form(form)
+            wp.get_links()
+
+        The action is one of 'GET' or 'POST', the URL is the target URL as a
+        string, and the values are a sequence of ``(name, value)`` tuples with the
+        form data.
+        """
+        values = form.form_values()
+        if extra_values:
+            if hasattr(extra_values, 'items'):
+                extra_values = extra_values.items()
+            values.extend(extra_values)
+
+        if form.action:
+            url = form.action
+        elif form.base_url:
+            url = form.base_url
+        else:
+            url = self.url
+        return self.request(form.method, url, data=values)
+
+    def get_files(self):
+        return (e[2] for e in self.parse())
+
+    def get_links(self):
+        return (e[2] for e in self.parse() if e[0].tag == 'a')
 
     def scrape_html(self, url):
         response = self.session.get(url)

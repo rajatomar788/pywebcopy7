@@ -58,6 +58,10 @@ def check_connection(host=None, port=None, timeout=None):
         return False
 
 
+class Bucket(object):
+    """Implement a delay timer based on bucket data structure."""
+
+
 class Session(requests.Session):
     """
     Caching Session object which consults robots.txt before accessing a resource.
@@ -67,7 +71,7 @@ class Session(requests.Session):
     def __init__(self):
         super(Session, self).__init__()
         self.headers = default_headers()
-        self.delay = 0.1
+        self.delay = 1 / 100   # 1 centi-second
         self.waiter = threading.Event()
         self.obey_robots_txt = True
         self.robots_registry = {}
@@ -93,6 +97,11 @@ class Session(requests.Session):
     #: backward compatibility
     def set_bypass(self, b):
         self.set_obey_robots_txt(not b)
+
+    def set_delay(self, d):
+        if not isinstance(d, (int, float)):
+            raise ValueError("Expected int or float, got %r" % d)
+        self.delay = d
 
     def load_rules_from_url(self, robots_url, timeout=None):
         """
@@ -159,7 +168,7 @@ class Session(requests.Session):
             self.logger.error("Access to [%r] disallowed by the robots.txt rules.", request.url)
             raise RobotsTxtDisallowed("Access to [%r] disallowed by the robots.txt rules." % request.url)
 
-        if isinstance(self.delay, integer_types):
+        if isinstance(self.delay, (int, float)):
             self.logger.debug('Waiting on [%s] request until [%d]' % (request.url, self.delay))
             self.waiter.wait(self.delay)
 

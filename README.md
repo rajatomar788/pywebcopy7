@@ -23,7 +23,7 @@ It will download all of theses resources, and continue to search for more.
 In this manner, WebCopy can "crawl" an entire website and download everything it sees
 in an effort to create a reasonable facsimile of the source website.
 
-##What can PyWebCopy not do?
+## What can PyWebCopy not do?
 
 PyWebCopy does not include a virtual DOM or any form of JavaScript parsing.
 If a website makes heavy use of JavaScript to operate, it is unlikely PyWebCopy will be able

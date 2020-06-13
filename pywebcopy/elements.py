@@ -4,6 +4,7 @@ import errno
 import logging
 import os
 import re
+import sys
 import warnings
 from base64 import b64encode
 from contextlib import closing
@@ -28,52 +29,70 @@ from .urls import relate
 
 logger = logging.getLogger(__name__)
 
+#: Binary file flags for kernel based io
+fd_flags = os.O_CREAT | os.O_WRONLY
+if hasattr(os, 'O_BINARY'):
+    fd_flags |= os.O_BINARY
+if hasattr(os, 'O_NOFOLLOW'):
+    fd_flags |= os.O_NOFOLLOW
+
 
 def make_fd(location, url=None, overwrite=False):
-    # Sub-directories creation
-    if not os.path.exists(os.path.dirname(location)):
-        try:
-            os.makedirs(os.path.dirname(location), mode=0o0700)
-        except (OSError, IOError) as e:
-            if e.errno != errno.EEXIST:
-                logger.error(
-                    "[File] Failed to create target location <%r> "
-                    "for the file <%r> on the disk." % (location, url)
-                )
-                return False
-
-    #: low-level System managed io
+    """Creates a kernel based file descriptor which should be used
+    to write binary data onto the files.
+    """
+    # Sub-directories creation which suppresses exceptions
+    base_dir = os.path.dirname(location)
     try:
-        flags = os.O_WRONLY | os.O_CREAT
-        if not overwrite:
-            flags |= os.O_EXCL
-        if hasattr(os, 'O_NOFOLLOW'):
-            flags |= os.O_NOFOLLOW
-        if hasattr(os, 'O_BINARY'):
-            flags |= os.O_BINARY
-        #: open the file
-        fd = os.open(location, flags, 0o600)
-    except (FileExistsError, PermissionError) as e:
-        if (os.name == 'nt' and os.path.isdir(location) and
-                os.access(location, os.W_OK)):
-            logger.error(
-                "Cannot write <%s> to <%s>! %r" % (url, location, e))
-            raise e
+        os.makedirs(base_dir)
+    except (OSError, IOError) as e:
+        if e.errno == errno.EEXIST or ((os.name == 'nt' and os.path.isdir(
+                base_dir) and os.access(base_dir, os.W_OK))):
+            logger.debug(
+                "[FILE] Sub-directories exists for: <%r>" % location)
+        # dead on arrival
         else:
-            logger.debug("<%s> already exists at: <%s>" % (url, location))
-            return False
+            logger.error(
+                "[File] Failed to create target location <%r> "
+                "for the file <%r> on the disk." % (location, url))
+            return -1
+    else:
+        logger.error(
+            "[File] Sub-directories created for: <%r>" % location)
+    try:
+
+        sys.audit("pywebcopy.resource", location)
+        if overwrite:
+            fd = os.open(location, fd_flags | os.O_TRUNC, 0o600)
+        else:
+            # raises FileExistsError if file exists
+            fd = os.open(location, fd_flags | os.O_EXCL, 0o600)
+
+    except (OSError, PermissionError) as e:
+        if e.errno == errno.EEXIST:
+            logger.debug(
+                "[FILE] <%s> already exists at: <%s>" % (url, location))
+        elif e.errno == errno.ENAMETOOLONG:
+            logger.debug(
+                "[FILE] Invalid path for <%s> at: <%s>" % (url, location))
+        else:
+            logger.error(
+                "[File] Cannot write <%s> to <%s>! %r" % (url, location, e))
+        return -1
     else:
         return fd
 
 
 def retrieve_resource(content, location, url=None, overwrite=False):
-    """Renders the downloadable resource to disk.
+    """Retrieves the readable resource to a local file.
 
-    :type content: BytesIO
-    :param content: file like object with read method
-    :param url:
-    :param location:
-    :param overwrite:
+    ..todo::
+        Add overwrite modes: Overwrite or True, Update, Ignore or False
+
+    :param BytesIO content: file like object with read method
+    :param location: file name where this content has to be saved.
+    :param url: (optional) url of the resource used for logging purposes.
+    :param overwrite: (optional) whether to overwrite an existing file.
     :return: rendered location or False if failed.
     """
     assert content is not None, "Content can't be of NoneType."
@@ -81,17 +100,18 @@ def retrieve_resource(content, location, url=None, overwrite=False):
     assert url is not None, "Url can't be of NoneType."
 
     logger.debug(
-        "Preparing to write file from <%r> to the disk at <%r>."
+        "[File] Preparing to write file from <%r> to the disk at <%r>."
         % (url, location))
 
     fd = make_fd(location, url, overwrite)
-    if not fd:
+    if fd == -1:
         return location
 
-    with closing(os.fdopen(fd, 'wb')) as dst:
+    with closing(os.fdopen(fd, 'w+b')) as dst:
         copyfileobj(content, dst)
 
-    logger.info("Written the file from <%s> to <%s>" % (url, location))
+    logger.info(
+        "[File] Written the file from <%s> to <%s>" % (url, location))
     return location
 
 
@@ -184,7 +204,7 @@ class GenericResource(object):
     def viewing_css(self):
         return self.content_type in self.css_content_types
 
-    def get(self, url, **params):
+    def request(self, method, url, **params):
         """Fetches the Html content from Internet using the requests.
         You can any requests params which will be passed to the library
         itself.
@@ -192,6 +212,7 @@ class GenericResource(object):
         global session meaning all the files will be downloaded using these
         settings.
 
+        :param method: http verb for transport.
         :param url: url of the page to fetch
         :param params: keyword arguments which `requests` module may accept.
         """
@@ -199,8 +220,14 @@ class GenericResource(object):
             warnings.warn(UserWarning(
                 "Stream attribute is True by default for reasons."
             ))
-        self.set_response(self.session.get(url, stream=True, **params))
-        self.response.raw.decode_content = True
+        self.set_response(
+            self.session.request(method, url, stream=True, **params))
+
+    def get(self, url, **params):
+        return self.request('GET', url, **params)
+
+    def post(self, url, **params):
+        return self.request('POST', url, **params)
 
     def resolve(self, parent_path=None):
         """Calculates the location at which this response should be stored as a file."""
@@ -226,13 +253,13 @@ class GenericResource(object):
         return self.response.content, self.encoding
 
     def retrieve(self):
-
+        """Retrieves the readable resource to the local disk."""
         if self.response is None:
             raise AttributeError(
                 "Response attribute is not set!"
                 "You need to fetch the resource using get method!"
             )
-        # FIXME: Validate resource here?
+        # XXX: Validate resource here?
         return self._retrieve()
 
     def _retrieve(self):
@@ -261,21 +288,10 @@ class GenericResource(object):
 
 
 class HTMLResource(GenericResource):
-    def get_forms(self):
-        raise NotImplementedError()
-
-    def submit_form(self, form):
-        raise NotImplementedError()
-
+    """Interpreter for resource written in or reported as html."""
     def parse(self, **kwargs):
         source, encoding = super(HTMLResource, self).get_source(raw_fp=True)
         return iterparse(source, encoding, collect_ids=False, **kwargs)
-
-    def get_files(self):
-        return (e[2] for e in self.parse())
-
-    def get_links(self):
-        return (e[2] for e in self.parse() if e[0].tag == 'a')
 
     def extract_children(self, parsing_buffer):
         location = self.filepath
@@ -318,12 +334,13 @@ class HTMLResource(GenericResource):
         # head.insert(0, Element('meta', charset=self.encoding))
 
         # WaterMarking :)
-        rewritten.root.insert(0, HtmlComment(self._get_watermark()))
+        rewritten.root.insert(0, HtmlComment(self._get_watermark().encode(
+            self.encoding, errors='xmlcharrefreplace')))
 
-        if not os.path.exists(os.path.dirname(self.filepath)):
-            os.makedirs(os.path.dirname(self.filepath), mode=0o700)
-
+        # if not os.path.exists(os.path.dirname(self.filepath)):
+        #     os.makedirs(os.path.dirname(self.filepath), mode=0o700)
         # rewritten.root.getroottree().write(self.filepath, method='html')
+
         retrieve_resource(
             BytesIO(tostring(rewritten.root, include_meta_content_type=True)),
             self.filepath, self.context.url, overwrite=True)
