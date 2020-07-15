@@ -46,6 +46,15 @@ advanced data driven websites may not work as expected once they have been copie
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+..todo::
+    *1. Fix parser breaks on empty string.
+    2. Fix WebPage links and files method emptying the response stream.
+    *3. Fix meta element in the head of the WebPage.
+    4. Add threading flag in the cmd and api.
+    5. Fix the MultiParser should be sub class of GenericElement.
+    6. Fix Asynchronous http requests for the sub elements.
+    7. Fix infinite nesting of anchor links requests on a single element.
+    8. Fix concurrent delay b/w requests to be domain specific.
 """
 
 import logging

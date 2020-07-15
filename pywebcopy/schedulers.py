@@ -11,6 +11,7 @@ from six.moves.urllib.parse import urlparse
 
 from .elements import VoidResource
 from .elements import CSSResource
+from .elements import JSResource
 from .elements import GenericOnlyResource
 from .elements import GenericResource
 from .elements import HTMLResource
@@ -140,7 +141,7 @@ class SchedulerBase(object):
         self.index.add_entry(resource.context.url, resource.filepath)
 
         if self.validate_resource(resource):
-            self.logger.info("Processing valid resource: %r" % resource)
+            self.logger.debug("Processing valid resource: %r" % resource)
             return self._handle_resource(resource)
         self.logger.error("Discarding invalid resource: %r" % resource)
 

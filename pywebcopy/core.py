@@ -1,18 +1,16 @@
 # Copyright 2020; Raja Tomar
 # See license for more details
-import os
 import logging
+import os
 from operator import attrgetter
 
-from lxml.html import parse
 from lxml.html import HTMLParser
 from lxml.html import XHTML_NAMESPACE
+from lxml.html import parse
 
 from .elements import HTMLResource
-from .schedulers import default_scheduler
 from .schedulers import crawler_scheduler
-from .session import check_connection
-from .urls import parse_url
+from .schedulers import default_scheduler
 
 __all__ = ['WebPage', 'Crawler']
 
@@ -42,9 +40,9 @@ class WebPage(HTMLResource):
         scheduler = default_scheduler()
         context = config.create_context()
         ans = cls(session, config, scheduler, context)
-        url = parse_url(config.get('project_url'))
-        if check_connection(url.hostname, url.port, 0.01):
-            ans.get(config.get('project_url'))
+        # url = parse_url(config.get('project_url'))
+        # if check_connection(url.hostname, url.port, 0.01):
+        #     ans.get(config.get('project_url'))
         return ans
 
     def __repr__(self):
@@ -69,12 +67,16 @@ class WebPage(HTMLResource):
         """
         Helper function to submit a form.
 
+        .. todo::
+            check documentation.
+
         You can use this like::
 
-            wp = HTMLResource()
+            wp = WebPage()
             wp.get('http://httpbin.org/forms/')
             form = wp.get_forms()[0]
-            form.inputs['foo'].value = 'bar' # etc
+            form.inputs['email'].value = 'bar' # etc
+            form.inputs['password'].value = 'baz' # etc
             wp.submit_form(form)
             wp.get_links()
 
@@ -118,9 +120,10 @@ class WebPage(HTMLResource):
         :param filename: path of the file to write the contents to
         """
         filename = filename or self.filepath
-        with open(filename, 'wb') as fh:
+        with open(filename, 'w+b') as fh:
             source, enc = self.get_source()
             fh.write(source)
+        return filename
 
     def save_complete(self, pop=False):
         """Saves the complete html+assets on page to a file and
@@ -130,17 +133,28 @@ class WebPage(HTMLResource):
         compact form with checks and validation.
         """
         if not self.viewing_html():
-            raise ValueError("Not viewing a html page. Please check the link!")
-
-        #: NOTE Start with indexing self
-        # self.scheduler.index.add_resource(self)
+            raise TypeError(
+                "Not viewing a html page. Please check the link!")
 
         self.scheduler.handle_resource(self)
-        if pop and os.path.exists(self.filepath):
+        if pop:
+            self.open_in_browser()
+        return self.filepath
+
+    def open_in_browser(self):
+        """Open the page in the default browser if it has been saved.
+
+        You need to use the :meth:`~WebPage.save_complete` to make it work.
+        """
+        if not os.path.exists(self.filepath):
             self.logger.info(
-                "Opening default browser with file: %s" % self.filepath)
-            import webbrowser
-            webbrowser.open('file:///' + self.filepath)
+                "Can't find the file to open in browser: %s" % self.filepath)
+            return False
+
+        self.logger.info(
+            "Opening default browser with file: %s" % self.filepath)
+        import webbrowser
+        return webbrowser.open('file:///' + self.filepath)
 
     # handy shortcuts
     run = crawl = save_assets = save_complete
@@ -157,7 +171,7 @@ class Crawler(WebPage):
         scheduler = crawler_scheduler()
         context = config.create_context()
         ans = cls(session, config, scheduler, context)
-        url = parse_url(config.get('project_url'))
-        if check_connection(url.hostname, url.port, 0.01):
-            ans.get(config.get('project_url'))
+        # url = parse_url(config.get('project_url'))
+        # if check_connection(url.hostname, url.port, 0.01):
+        #     ans.get(config.get('project_url'))
         return ans

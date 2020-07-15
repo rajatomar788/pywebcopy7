@@ -3,15 +3,20 @@
 import os
 import sys
 import optparse
+import six
 
+from pywebcopy.__version__ import __title__
 from pywebcopy.__version__ import __version__
 from pywebcopy.__version__ import __description__
 from pywebcopy import save_webpage
 from pywebcopy import save_website
 
 parser = optparse.OptionParser(
-    usage='%prog [option] <url> <location> [<arg3>...]',
+    usage='%prog [-p|--page|-s|--site|-t|--tests] '
+          '[--url=URL [,--location=LOCATION [,--name=NAME '
+          '[,--pop [,--bypass_robots [,--quite [,--delay=DELAY]]]]]]] ',
     version=__version__,
+    prog=__title__,
     description=__description__
 )
 
@@ -33,9 +38,20 @@ parser.add_option('--bypass_robots', default=True, action='store_true', help='By
 parser.add_option('-q', '--quite', default=False, action='store_true', help='Suppress the logging from this library.')
 parser.add_option('--pop', default=True, action='store_true',
                   help='open the html page in default browser window after finishing the task.')
-parser.add_option('-d', '--delay', default=0, type=int, help="Delay between consecutive requests to the server.")
+parser.add_option('-d', '--delay', type=int, help="Delay between consecutive requests to the server.")
 
 args, remainder = parser.parse_args()
+
+
+# type checks
+if args.page or args.site:
+    if not args.url or not isinstance(args.url, six.string_types):
+        parser.error("--url option requires 1 string type argument")
+    if args.location and not isinstance(args.location, six.string_types):
+        parser.error("--location option requires 1 string type argument")
+    if args.name and not isinstance(args.name, six.string_types):
+        parser.error("--name option requires 1 string type argument")
+
 
 if args.page:
     save_webpage(

@@ -20,6 +20,7 @@ from six import binary_type
 from six import string_types
 from six.moves.urllib.request import pathname2url
 
+from .__version__ import __title__
 from .__version__ import __version__
 from .helpers import cached_property
 from .parsers import iterparse
@@ -57,11 +58,11 @@ def make_fd(location, url=None, overwrite=False):
                 "for the file <%r> on the disk." % (location, url))
             return -1
     else:
-        logger.error(
+        logger.debug(
             "[File] Sub-directories created for: <%r>" % location)
     try:
 
-        sys.audit("pywebcopy.resource", location)
+        sys.audit("%s.resource" % __title__, location)
         if overwrite:
             fd = os.open(location, fd_flags | os.O_TRUNC, 0o600)
         else:
@@ -74,7 +75,7 @@ def make_fd(location, url=None, overwrite=False):
                 "[FILE] <%s> already exists at: <%s>" % (url, location))
         elif e.errno == errno.ENAMETOOLONG:
             logger.debug(
-                "[FILE] Invalid path for <%s> at: <%s>" % (url, location))
+                "[FILE] Path too long for <%s> at: <%s>" % (url, location))
         else:
             logger.error(
                 "[File] Cannot write <%s> to <%s>! %r" % (url, location, e))
@@ -115,6 +116,27 @@ def retrieve_resource(content, location, url=None, overwrite=False):
     return location
 
 
+def urlretrieve(url, location, **params):
+    """
+    A extra rewrite of a basic `urllib` function using the
+    tweaks and perks of this library.
+
+    :param url: url of the resource to be retrieved.
+    :param location: destination for the resource.
+    :params \*\*params: parameters for the :func:`requests.get`.
+    :return: location of the file retrieved.
+    """
+    if not isinstance(url, string_types):
+        raise TypeError("Expected string type, got %r" % url)
+    if not isinstance(location, string_types):
+        raise TypeError("Expected string type, got %r" % location)
+
+    import requests
+    with closing(requests.get(url, **params)) as src:
+        return retrieve_resource(
+            src.raw, location, url, overwrite=True)
+
+
 class GenericResource(object):
     def __init__(self, session, config, scheduler, context, response=None):
         """
@@ -142,7 +164,10 @@ class GenericResource(object):
         return '<%s(url=%s)>' % (self.__class__.__name__, self.context.url)
 
     def set_response(self, response):
-        """Update the response attribute of this object. Additionally updating the content_type."""
+        """Update the response attribute of this object.
+
+        It also updates the content_type and encoding as reported by the
+        server implicitly for better detection of contents."""
         self.response = response
         self.__dict__.pop('url', None)
         self.__dict__.pop('filepath', None)
@@ -185,7 +210,8 @@ class GenericResource(object):
     def encoding(self):
         if self.response is not None:
             #: Explicit encoding takes precedence
-            return self.config.get('encoding', self.response.encoding or 'ascii')
+            return self.config.get(
+                'encoding', self.response.encoding or 'ascii')
         return self.config.get('encoding', 'ascii')
 
     html_content_types = tuple([
@@ -203,6 +229,14 @@ class GenericResource(object):
 
     def viewing_css(self):
         return self.content_type in self.css_content_types
+
+    js_content_types = tuple([
+        'text/javascript',
+        'application/javascript'
+    ])
+
+    def viewing_js(self):
+        return self.content_type in self.js_content_types
 
     def request(self, method, url, **params):
         """Fetches the Html content from Internet using the requests.
@@ -291,7 +325,8 @@ class HTMLResource(GenericResource):
     """Interpreter for resource written in or reported as html."""
     def parse(self, **kwargs):
         source, encoding = super(HTMLResource, self).get_source(raw_fp=True)
-        return iterparse(source, encoding, collect_ids=False, **kwargs)
+        return iterparse(
+            source, encoding, include_meta_charset_tag=True, **kwargs)
 
     def extract_children(self, parsing_buffer):
         location = self.filepath
@@ -322,34 +357,21 @@ class HTMLResource(GenericResource):
             return super(HTMLResource, self)._retrieve()
 
         parsing_buffer = self.parse()
-        rewritten = self.extract_children(parsing_buffer)
-
-        # try:
-        #     head = rewritten.root.head
-        # except (AttributeError, IndexError):
-        #     head = Element('head')
-        #     rewritten.root.insert(0, head)
-        # #: Write the inferred charset to the html dom so that browsers read this
-        # # document in our specified encoding.
-        # head.insert(0, Element('meta', charset=self.encoding))
+        context = self.extract_children(parsing_buffer)
 
         # WaterMarking :)
-        rewritten.root.insert(0, HtmlComment(self._get_watermark().encode(
-            self.encoding, errors='xmlcharrefreplace')))
-
-        # if not os.path.exists(os.path.dirname(self.filepath)):
-        #     os.makedirs(os.path.dirname(self.filepath), mode=0o700)
-        # rewritten.root.getroottree().write(self.filepath, method='html')
+        context.root.insert(0, HtmlComment(self._get_watermark()))
 
         retrieve_resource(
-            BytesIO(tostring(rewritten.root, include_meta_content_type=True)),
+            BytesIO(tostring(context.root, include_meta_content_type=True)),
             self.filepath, self.context.url, overwrite=True)
 
-        self.logger.info('Retrieved content from the url: [%s]' % self.url)
-        del parsing_buffer, rewritten
+        self.logger.debug('Retrieved content from the url: [%s]' % self.url)
+        del parsing_buffer, context
         return self.filepath
 
     def _get_watermark(self):
+        # comment text should be in unicode
         return dedent("""
         * PyWebCopy Engine [version %s]
         * Copyright 2020; Raja Tomar
@@ -363,8 +385,7 @@ class CSSResource(GenericResource):
         return self.get_source(raw_fp=False)
 
     def repl(self, match, encoding=None, fmt=None):
-        if fmt is None:
-            fmt = "%s"
+        fmt = fmt or '%s'
 
         url, _ = unquote_match(match.group(1).decode(encoding), match.start(1))
         self.logger.debug("Sub-Css resource found: [%s]" % url)
@@ -407,6 +428,86 @@ class CSSResource(GenericResource):
         if not self.response.ok:
             self.logger.debug("Resource at [%s] is NOT ok and will be NOT processed." % self.url)
             return super(CSSResource, self)._retrieve()
+
+        self.logger.debug("Resource at [%s] is ok and will be processed." % self.url)
+        retrieve_resource(
+            self.extract_children(self.parse()),
+            self.filepath, self.url, self.config.get('overwrite')
+        )
+        self.logger.debug("Finished processing resource [%s]" % self.url)
+        return self.filepath
+
+
+class JSResource(GenericResource):
+    def parse(self):
+        return self.get_source(raw_fp=False)
+
+    def repl(self, match, encoding=None):
+        url, _ = unquote_match(match.group(1).decode(encoding), match.start(1))
+        self.logger.debug("Sub-JS resource found: [%s]" % url)
+
+        if not self.scheduler.validate_url(url):
+            return url.encode(encoding)
+
+        sub_context = self.context.create_new_from_url(url)
+        self.logger.debug('Creating context for url: %s as %s' % (url, sub_context))
+        ans = self.__class__(
+            self.session, self.config, self.scheduler, sub_context
+        )
+        # self.children.add(ans)
+        self.logger.debug("Submitting resource: [%s] to the scheduler." % url)
+        self.scheduler.handle_resource(ans)
+        re_enc = (ans.resolve(self.filepath)).encode(encoding)
+        self.logger.debug("Re-encoded the resource: [%s] as [%r]" % (url, re_enc))
+        return re_enc
+
+    # noinspection PyTypeChecker
+    def extract_children(self, parsing_buffer):
+        """Schedules the linked files for downloading then resolves their references."""
+        source, encoding = parsing_buffer
+        # P.S. Regex is from this github repo under MIT license
+        # https://github.com/GerbenJavado/LinkFinder/
+        source = re.sub(
+            (r"""
+            (?:"|')                               # Start newline delimiter
+            (
+                ((?:[a-zA-Z]{1,10}://|//)           # Match a scheme [a-Z]*1-10 or //
+                [^"'/]{1,}\.                        # Match a domain-name (any character + dot)
+                [a-zA-Z]{2,}[^"']{0,})              # The domain-extension and/or path
+                |
+                ((?:/|\.\./|\./)                    # Start with /,../,./
+                [^"'><,;| *()(%%$^/\\\[\]]          # Next character can't be...
+                [^"'><,;|()]{1,})                   # Rest of the characters can't be
+                |
+                ([a-zA-Z0-9_\-/]{1,}/               # Relative endpoint with /
+                [a-zA-Z0-9_\-/]{1,}                 # Resource name
+                \.(?:[a-zA-Z]{1,4}|action)          # Rest + extension (length 1-4 or action)
+                (?:[\?|#][^"|']{0,}|))              # ? or # mark with parameters
+                |
+                ([a-zA-Z0-9_\-/]{1,}/               # REST API (no extension) with /
+                [a-zA-Z0-9_\-/]{3,}                 # Proper REST endpoints usually have 3+ chars
+                (?:[\?|#][^"|']{0,}|))              # ? or # mark with parameters
+                |
+                ([a-zA-Z0-9_\-]{1,}                 # filename
+                \.(?:php|asp|aspx|jsp|json|
+                     action|html|js|txt|xml)        # . + extension
+                (?:[\?|#][^"|']{0,}|))              # ? or # mark with parameters
+            )
+            (?:"|')                               # End newline delimiter
+            """).encode(encoding),
+            partial(self.repl, encoding=encoding), source, flags=re.IGNORECASE
+        )
+        return BytesIO(source)
+
+    def _retrieve(self):
+        """Writes the modified buffer to the disk."""
+        if not self.viewing_js():
+            self.logger.info("Resource of type [%s] is not JS." % self.content_type)
+            return super(JSResource, self)._retrieve()
+
+        if not self.response.ok:
+            self.logger.debug("Resource at [%s] is NOT ok and will be NOT processed." % self.url)
+            return super(JSResource, self)._retrieve()
 
         self.logger.debug("Resource at [%s] is ok and will be processed." % self.url)
         retrieve_resource(

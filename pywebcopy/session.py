@@ -1,14 +1,21 @@
 # Copyright 2020; Raja Tomar
 # See license for more details
-import logging
-import threading
+"""
+..todo::
+
+1. Add domain-specific / global delays.
+2. Add domain blocking, * pattern blocking.
+"""
+
+import time
 import contextlib
+import logging
 import socket
+import threading
 
 import requests
 from requests.exceptions import RequestException
 from requests.structures import CaseInsensitiveDict
-from six import integer_types
 from six.moves.urllib.parse import urlsplit
 from six.moves.urllib.parse import urlunsplit
 from six.moves.urllib.robotparser import RobotFileParser
@@ -58,8 +65,42 @@ def check_connection(host=None, port=None, timeout=None):
         return False
 
 
-class Bucket(object):
-    """Implement a delay timer based on bucket data structure."""
+class ConcurrentDelay(object):
+    """
+    Blocking waiter which calculates the delay irrespective of the
+    waiting call rather than just waiting on the specified time.
+
+    for example if time between two calls for delay are 10 seconds apart
+    but the timeout is set for 1 second then the second call will not block
+    but a successive third call will be blocked for 1 second before completing.
+    """
+
+    def __init__(self, timeout=1/10):
+        self.timeout = None
+        self.set_timeout(timeout)
+        self.start_time = time.time()
+        self._cond = threading.Condition()
+        self.logger = logger.getChild(self.__class__.__name__)
+
+    def set_timeout(self, t):
+        if not isinstance(t, (int, float)):
+            raise ValueError("Expected int or float, got %r" % t)
+        if t <= -1:
+            raise ValueError("Delay cannot be smaller than 0")
+        self.timeout = t
+
+    def delay(self):
+        """Delays until the timeout is completed"""
+        with self._cond:
+            current_time = time.time()
+            diff_time = current_time - self.start_time
+            # prevent none type values from waiting infinitely
+            if isinstance(self.timeout, (int, float)) \
+                    and not diff_time >= self.timeout:
+                self.logger.debug(
+                    "Waiting on request for [%r] seconds!" % self.timeout)
+                self._cond.wait(self.timeout - diff_time)
+            self.start_time = current_time
 
 
 class Session(requests.Session):
@@ -71,8 +112,7 @@ class Session(requests.Session):
     def __init__(self):
         super(Session, self).__init__()
         self.headers = default_headers()
-        self.delay = 1 / 100   # 1 centi-second
-        self.waiter = threading.Event()
+        self.waiter = ConcurrentDelay(1 / 100)
         self.obey_robots_txt = True
         self.robots_registry = {}
         self.logger = logger.getChild(self.__class__.__name__)
@@ -101,7 +141,7 @@ class Session(requests.Session):
     def set_delay(self, d):
         if not isinstance(d, (int, float)):
             raise ValueError("Expected int or float, got %r" % d)
-        self.delay = d
+        self.waiter.set_timeout(d)
 
     def load_rules_from_url(self, robots_url, timeout=None):
         """
@@ -165,13 +205,12 @@ class Session(requests.Session):
         if not isinstance(request, requests.PreparedRequest):
             raise ValueError('You can only send PreparedRequests.')
         if not self.is_allowed(request, kwargs.get('timeout', None)):
-            self.logger.error("Access to [%r] disallowed by the robots.txt rules.", request.url)
-            raise RobotsTxtDisallowed("Access to [%r] disallowed by the robots.txt rules." % request.url)
+            self.logger.error(
+                "Access to [%r] disallowed by the robots.txt rules.", request.url)
+            raise RobotsTxtDisallowed(
+                "Access to [%r] disallowed by the robots.txt rules." % request.url)
 
-        if isinstance(self.delay, (int, float)):
-            self.logger.debug('Waiting on [%s] request until [%d]' % (request.url, self.delay))
-            self.waiter.wait(self.delay)
-
+        self.waiter.delay()
         self.logger.info('[%s] [%s]' % (request.method, request.url))
         return super(Session, self).send(request, **kwargs)
 

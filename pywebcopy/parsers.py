@@ -9,6 +9,7 @@ from lxml import etree
 from lxml.html import _nons
 from lxml.html import tostring
 from lxml.html import fromstring
+from lxml.html import XHTML_NAMESPACE
 from lxml.html.clean import Cleaner
 from lxml.html.defs import link_attrs
 from six import integer_types
@@ -68,7 +69,8 @@ class ElementBase(etree.ElementBase):
         self.remove_csrf_checks()
 
 
-def iterparse(source, encoding=None, events=None, **kwargs):
+def iterparse(source, encoding=None, events=None,
+              include_meta_charset_tag=False, **kwargs):
     """Incrementally parse HTML document into ElementTree.
 
     TODO:
@@ -79,39 +81,63 @@ def iterparse(source, encoding=None, events=None, **kwargs):
         3. Make a additional no-op iterator and a forms iterator.
 
     """
+    encoding = encoding or 'iso-8859-1'     # rfc default web encoding
     parser = etree.HTMLPullParser(events=events, encoding=encoding, **kwargs)
     lookup = etree.ElementDefaultClassLookup(ElementBase)
     parser.set_element_class_lookup(lookup)
 
     def iterator():
-        try:
-            while True:
-                # yield from chain.from_iterable(map(filter_, parser.read_events()))
-                # for i in chain.from_iterable(
-                #   (links(element) for event, element in parser.read_events())
-                # ):
-                #     yield i
-                for event, element in parser.read_events():
-                    for child in links(element):
-                        if child is None:
-                            continue
-                        yield child
-                data = source.read(0o3000)
-                if not data:
-                    break
-                parser.feed(data)
-            root = parser.close()
-            # parser could generate end events for html and
-            # body tags which the parser itself inserted.
+        # try:
+        while True:
+            # yield from chain.from_iterable(map(filter_, parser.read_events()))
+            # for i in chain.from_iterable(
+            #   (links(element) for event, element in parser.read_events())
+            # ):
+            #     yield i
             for event, element in parser.read_events():
                 for child in links(element):
                     if child is None:
                         continue
                     yield child
-            it.root = root
-        finally:
-            if close_source:
-                source.close()
+            data = source.read(0o3000)
+            if not data:
+                break
+            parser.feed(data)
+
+        if include_meta_charset_tag:
+            parser.feed(('<meta charset="%s" />' % encoding).encode(
+                encoding, 'xmlcharrefreplace'))
+            # try:
+            #     head = root.xpath(
+            #         "descendant-or-self::head|descendant-or-self::x:head",
+            #         namespaces={'x': XHTML_NAMESPACE}
+            #     )[0]
+            # except (AttributeError, IndexError):
+            #     head = parser.makeelement('head')
+            #     root.insert(0, head)
+            # #: Write the inferred charset to the html dom so that browsers read this
+            # #: document in our specified encoding.
+            # head.insert(0, parser.makeelement('meta', charset=encoding))
+        try:
+            root = parser.close()
+        except etree.XMLSyntaxError:
+            parser.feed('<html></html>'.encode(
+                encoding, 'xmlcharrefreplace'))
+            root = parser.close()
+
+        # parser could generate end events for html and
+        # body tags which the parser itself inserted.
+        # for event, element in parser.read_events():
+        #     for child in links(element):
+        #         if child is None:
+        #             continue
+        #         yield child
+
+        it.root = root
+        root = None
+        # XXX No implicit source closing
+        # if close_source:
+        #     source.close()
 
     class IterParseIterator(Iterator):
         next = __next__ = iterator().__next__
@@ -120,10 +146,11 @@ def iterparse(source, encoding=None, events=None, **kwargs):
     it.root = None
     del IterParseIterator
 
-    close_source = False
+    # close_source = False
     if not hasattr(source, "read"):
-        source = open(source, "rb")
-        close_source = True
+        # source = open(source, "rb")
+        # close_source = True
+        raise TypeError("Expected a readable object, got %r" % source)
 
     return it
 

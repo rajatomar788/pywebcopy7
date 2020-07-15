@@ -1,5 +1,5 @@
-setuptools~=41.2.0
-six~=1.15.0
-requests~=2.23.0
-lxml~=4.5.1
+setuptools
+six
+requests
+lxml
 cachecontrol

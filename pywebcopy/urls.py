@@ -280,6 +280,7 @@ def get_content_type_from_headers(headers, default=None):
 # https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Complete_list_of_MIME_types
 common_suffix_map = {
     'application/epub+zip': '.epub',  # Electronic publication (EPUB)
+    'application/javascript': '.js',  # JavaScript module
     'application/gzip': '.gz',  # GZip Compressed Archive
     'application/java-archive': '.jar',  # Java Archive (JAR)
     'application/json': '.json',  # JSON format
@@ -346,7 +347,8 @@ common_suffix_map = {
     'text/html': '.html',  # HyperText Markup Language (HTML)
     'text/javascript': '.mjs',  # JavaScript module',
     'text/plain': '.txt',  # Text, (generally ASCII or ISO 8859-n)',
-    "video/3gpp\n    audio/3gpp if it doesn't contain video": '.3gp',  # 3GPP audio/video container',
+    "video/3gpp": '.3gp',  # 3GPP audio/video container',
+    "audio/3gpp": '.3gp',  # 3GPP audio/video container',
     "video/3gpp2": '.3g2',  # 3GPP2 audio/video container'
     "audio/3gpp2": '.3g2',  # 3GPP2 audio/video container'
     'video/mp2t': '.ts',  # MPEG transport stream

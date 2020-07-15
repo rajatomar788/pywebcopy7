@@ -3,8 +3,8 @@ import unittest
 from collections import Iterator
 
 import lxml.etree
-from lxml.etree import XMLSyntaxError
 from lxml.html import Element
+from lxml.html import tostring
 from six import BytesIO
 from six import StringIO
 from six import next
@@ -16,30 +16,48 @@ import pywebcopy.parsers
 
 class TestIterParse(unittest.TestCase):
 
-    def test_source_is_none_type(self):
-        with self.assertRaises(TypeError):
-            iterparse(None)
-
     def test_source_is_empty_string(self):
-        with self.assertRaises(FileNotFoundError):
+        with self.assertRaises(TypeError):
             iterparse('')
 
     def test_source_without_read_method(self):
         with self.assertRaises(TypeError):
             iterparse(object())
+        with self.assertRaises(TypeError):
+            iterparse(None)
 
     def test_source_is_not_bytes(self):
         source = StringIO('<img src="#">')
         context = iterparse(source)
         lst = list(context)
-        self.assertTrue(len(lst) > 0)
+        self.assertTrue(len(lst) == 1)
+        el, attr, url, pos = lst.pop()
+        self.assertEqual(url, '#')
+        self.assertEqual(pos, 0)
+        self.assertEqual(attr, 'src')
+        self.assertEqual(el.tag, 'img')
+        self.assertEqual(el.attrib, {'src': '#'})
 
     def test_source_is_empty(self):
         source = BytesIO(b'')
         context = iterparse(source)
-        with self.assertRaises(XMLSyntaxError):
-            list(context)
-        self.assertTrue(context.root is None)
+        self.assertEqual(list(context), [])
+        self.assertEqual(tostring(context.root),
+                         b'<html></html>')
+
+    def test_meta_charset_insertion(self):
+        context = iterparse(BytesIO(b''), include_meta_charset_tag=True)
+        self.assertEqual(list(context), [])
+        elms = context.root.xpath('//meta')
+        self.assertEqual(len(elms), 1)
+        meta = elms.pop()
+        self.assertEqual(meta.tag, 'meta')
+        self.assertEqual(meta.attrib['charset'], 'iso-8859-1')
+        self.assertEqual(tostring(meta),
+                         tostring(lxml.html.Element('meta', charset='iso-8859-1')))
+        self.assertEqual(
+            tostring(context.root),
+            b'<html><head>%s</head></html>' % tostring(meta))
 
     def test_return_type(self):
         source = BytesIO(b'<img src="#">')
@@ -511,6 +529,7 @@ class TestFullHTMLParsing(unittest.TestCase):
 
     def test_z_root_tree_attribute(self):
         self.assertTrue(hasattr(self.context.root, 'getroottree'))
+        self.assertTrue(isinstance(self.context.root, lxml.etree.ElementBase))
         self.assertTrue(isinstance(self.context.root.getroottree(), lxml.etree._ElementTree))
 
 

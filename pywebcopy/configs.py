@@ -10,6 +10,7 @@ from requests.structures import CaseInsensitiveDict
 from six import text_type
 from six import string_types
 
+from .__version__ import __title__
 from .__version__ import __version__
 from .urls import HIERARCHY
 from .urls import get_host
@@ -27,7 +28,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-def add_stderr_logger(name='pywebcopy', level=logging.DEBUG):
+def add_stderr_logger(name=__title__, level=logging.DEBUG):
     """
     Helper for quickly adding a StreamHandler to the logger. Useful for
     debugging.
@@ -82,7 +83,7 @@ default_config = {
     'delay': None,
     'tree_type': HIERARCHY,
 
-    # TODO: Allow a last modified overwrite mode
+    # TODO: Allow a `last-modified-time` overwrite mode
     'overwrite': False,
 
     'bypass_robots': False,
@@ -108,9 +109,12 @@ class ConfigHandler(CaseInsensitiveDict):
         return '<ConfigHandler(%s)>' % self.get('project_name', 'Not Set')
 
     def __getattribute__(self, item):
-        """Dynamic method of name `set_(key)` generation for all of the keys available.
-        for example to change the `project_url` key instead of using dictionary like
-        operation you would do `.set_project_url(new)` instead of `['project_url'] = new`.
+        """Dynamic method of name `get_(key)` and `set_(key)` generation
+        for all of the keys available.
+        for example to change the `project_url` key
+        instead of using dictionary like operation you would do
+        `.get_project_url()` instead of `['project_url']`.
+        `.set_project_url(new)` instead of `['project_url'] = new`.
         """
         if isinstance(item, string_types) and item.startswith('set_'):
             if item[4:] in self:
@@ -119,6 +123,10 @@ class ConfigHandler(CaseInsensitiveDict):
             if item[4:] in self:
                 return partial(self.__getitem__, item[4:])
         return super(ConfigHandler, self).__getattribute__(item)
+
+    def resolve_url(self):
+        """Resolves any redirects in the url and sets the final url as base url."""
+        raise NotImplementedError()
 
     def reset_config(self):
         """Resets all to configuration to default state."""
