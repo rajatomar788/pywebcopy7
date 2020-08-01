@@ -11,7 +11,6 @@ import time
 import contextlib
 import logging
 import socket
-import threading
 
 import requests
 from requests.exceptions import RequestException
@@ -65,44 +64,6 @@ def check_connection(host=None, port=None, timeout=None):
         return False
 
 
-class ConcurrentDelay(object):
-    """
-    Blocking waiter which calculates the delay irrespective of the
-    waiting call rather than just waiting on the specified time.
-
-    for example if time between two calls for delay are 10 seconds apart
-    but the timeout is set for 1 second then the second call will not block
-    but a successive third call will be blocked for 1 second before completing.
-    """
-
-    def __init__(self, timeout=1/10):
-        self.timeout = None
-        self.set_timeout(timeout)
-        self.start_time = time.time()
-        self._cond = threading.Condition()
-        self.logger = logger.getChild(self.__class__.__name__)
-
-    def set_timeout(self, t):
-        if not isinstance(t, (int, float)):
-            raise ValueError("Expected int or float, got %r" % t)
-        if t <= -1:
-            raise ValueError("Delay cannot be smaller than 0")
-        self.timeout = t
-
-    def delay(self):
-        """Delays until the timeout is completed"""
-        with self._cond:
-            current_time = time.time()
-            diff_time = current_time - self.start_time
-            # prevent none type values from waiting infinitely
-            if isinstance(self.timeout, (int, float)) \
-                    and not diff_time >= self.timeout:
-                self.logger.debug(
-                    "Waiting on request for [%r] seconds!" % self.timeout)
-                self._cond.wait(self.timeout - diff_time)
-            self.start_time = current_time
-
-
 class Session(requests.Session):
     """
     Caching Session object which consults robots.txt before accessing a resource.
@@ -112,9 +73,9 @@ class Session(requests.Session):
     def __init__(self):
         super(Session, self).__init__()
         self.headers = default_headers()
-        self.waiter = ConcurrentDelay(1 / 100)
         self.obey_robots_txt = True
         self.robots_registry = {}
+        self.domain_blacklist = set()
         self.logger = logger.getChild(self.__class__.__name__)
 
     def enable_http_cache(self):
@@ -138,14 +99,9 @@ class Session(requests.Session):
     def set_bypass(self, b):
         self.set_obey_robots_txt(not b)
 
-    def set_delay(self, d):
-        if not isinstance(d, (int, float)):
-            raise ValueError("Expected int or float, got %r" % d)
-        self.waiter.set_timeout(d)
-
     def load_rules_from_url(self, robots_url, timeout=None):
-        """
-        Manually load the robots.txt file from the server.
+        """Manually load the robots.txt file from the server.
+
         :param robots_url: url address of the text file to load.
         :param timeout: requests timeout
         :return: loaded rules or None if failed.
@@ -183,14 +139,22 @@ class Session(requests.Session):
         else:
             _parser.parse(f.text.splitlines())
         self.robots_registry[robots_url] = _parser
+        #: Initiate a start time for delays
+        _parser.modified()
         return _parser
 
     def is_allowed(self, request, timeout=None):
+        s, n, p, q, f = urlsplit(request.url)
+
+        if n in self.domain_blacklist:
+            self.logger.error(
+                "Blocking request to a blacklisted domain: %r" % n)
+            return False
+
         #: if set to not follow the robots.txt
         if not self.obey_robots_txt:
             return True
 
-        s, n, p, q, f = urlsplit(request.url)
         robots_url = urlunsplit((s, n, 'robots.txt', None, None))
         try:
             access_rules = self.robots_registry[robots_url]
@@ -198,8 +162,26 @@ class Session(requests.Session):
             access_rules = self.load_rules_from_url(robots_url, timeout)
         if access_rules is None:  # error - everybody welcome
             return True
+
         user_agent = request.headers.get('User-Agent', '*')
-        return access_rules.can_fetch(user_agent, request.url)
+        allowed = access_rules.can_fetch(user_agent, request.url)
+        if not allowed:
+            return False
+        request_rate = access_rules.request_rate(user_agent)
+        if request_rate is None:
+            #: No worries :)
+            return True
+
+        current_time = time.time()
+        diff_time = current_time - access_rules.mtime()
+        delay = request_rate.seconds / request_rate.requests
+
+        if isinstance(delay, (int, float)) and not diff_time >= delay:
+            self.logger.debug(
+                "Waiting on request for [%r] seconds!" % delay)
+            time.sleep(delay)
+        #: Update the access time value
+        access_rules.modified()
 
     def send(self, request, **kwargs):
         if not isinstance(request, requests.PreparedRequest):
@@ -210,7 +192,6 @@ class Session(requests.Session):
             raise RobotsTxtDisallowed(
                 "Access to [%r] disallowed by the robots.txt rules." % request.url)
 
-        self.waiter.delay()
         self.logger.info('[%s] [%s]' % (request.method, request.url))
         return super(Session, self).send(request, **kwargs)
 

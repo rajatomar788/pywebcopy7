@@ -48,13 +48,13 @@ advanced data driven websites may not work as expected once they have been copie
 
 ..todo::
     *1. Fix parser breaks on empty string.
-    2. Fix WebPage links and files method emptying the response stream.
+    *2. Fix WebPage links and files method emptying the response stream.
     *3. Fix meta element in the head of the WebPage.
-    4. Add threading flag in the cmd and api.
-    5. Fix the MultiParser should be sub class of GenericElement.
+    *4. Add threading flag in the cmd and api.
+    *5. Fix the MultiParser should be sub class of GenericElement.
     6. Fix Asynchronous http requests for the sub elements.
     7. Fix infinite nesting of anchor links requests on a single element.
-    8. Fix concurrent delay b/w requests to be domain specific.
+    *8. Fix concurrent delay b/w requests to be domain specific.
 """
 
 import logging
@@ -70,9 +70,10 @@ def save_page(url,
               bypass_robots=None,
               debug=False,
               open_in_browser=True,
-              delay=None):
+              delay=None,
+              threaded=None,):
     from .configs import get_config
-    config = get_config(url, project_folder, project_name, bypass_robots, debug, delay)
+    config = get_config(url, project_folder, project_name, bypass_robots, debug, delay, threaded)
     page = config.create_page()
     page.get(url)
     page.save_complete(pop=open_in_browser)
@@ -87,9 +88,10 @@ def save_website(url,
                  bypass_robots=None,
                  debug=False,
                  open_in_browser=False,
-                 delay=None):
+                 delay=None,
+                 threaded=None):
     from .configs import get_config
-    config = get_config(url, project_folder, project_name, bypass_robots, debug, delay)
+    config = get_config(url, project_folder, project_name, bypass_robots, debug, delay, threaded)
     crawler = config.create_crawler()
     crawler.get(url)
     crawler.save_complete(pop=open_in_browser)

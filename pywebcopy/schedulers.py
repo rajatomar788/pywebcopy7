@@ -12,7 +12,7 @@ from six.moves.urllib.parse import urlparse
 from .elements import VoidResource
 from .elements import CSSResource
 from .elements import JSResource
-from .elements import GenericOnlyResource
+from .elements import AbsoluteUrlResource
 from .elements import GenericResource
 from .elements import HTMLResource
 from .elements import UrlRemover
@@ -22,7 +22,10 @@ logger = logging.getLogger(__name__)
 
 
 class Index(RecentOrderedDict):
-    """Files index dict."""
+    """Files index dict.
+
+    ..todo:: make it database synced
+    """
     def add_entry(self, k, v):
         self.__setitem__(k, v)
 
@@ -43,8 +46,9 @@ class Index(RecentOrderedDict):
 
 class SchedulerBase(object):
     """A Synchronised resource processor.
-       File paths would be based on the content-type header returned by the server
-       but this would be slow because of being synchronous but is very reliable.
+
+    File paths would be based on the content-type header returned by the server
+    but this would be slow because of being synchronous but is very reliable.
     """
     style_tags = frozenset(['link', 'style'])
     img_tags = frozenset(['img'])
@@ -68,7 +72,8 @@ class SchedulerBase(object):
 
     def register_handler(self, key, value):
         self.data.__setitem__(key, value)
-        self.logger.info("Set the scheduler handler for %s as: [%r]" % (key, value))
+        self.logger.info(
+            "Set the scheduler handler for %s as: [%r]" % (key, value))
 
     add_handler = register_handler
 
@@ -195,7 +200,6 @@ class ThreadingScheduler(Scheduler):
         for thread in threads:
             if thread.is_alive():
                 thread.join(timeout)
-        del threads[:]
 
     def _handle_resource(self, resource):
         def run(r):
@@ -315,11 +319,11 @@ def default_scheduler():
     for k in ans.img_tags:
         ans.register_handler(k, GenericResource)
     for k in ans.script_tags:
-        ans.register_handler(k, GenericResource)
+        ans.register_handler(k, JSResource)
     for k in ans.meta_tags:
-        ans.register_handler(k, GenericOnlyResource)
+        ans.register_handler(k, GenericResource)
     for k in ans.external_tags:
-        ans.register_handler(k, GenericOnlyResource)
+        ans.register_handler(k, AbsoluteUrlResource)
     return ans
 
 

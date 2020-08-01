@@ -3,8 +3,10 @@
 import time
 import functools
 import collections
+import threading
 
 from requests.compat import OrderedDict
+from six import BytesIO
 
 
 class RecentOrderedDict(collections.MutableMapping):
@@ -13,6 +15,7 @@ class RecentOrderedDict(collections.MutableMapping):
     recently inserted or retrieved from the dictionary is at the top of the
     dictionary enumeration.
     """
+
     def __init__(self, *args, **kwargs):
         self._data = OrderedDict(*args, **kwargs)
 
@@ -46,6 +49,44 @@ class RecentOrderedDict(collections.MutableMapping):
         return self._data.keys()
 
 
+class ConcurrentDelay(object):
+    """
+    Blocking waiter which calculates the delay irrespective of the
+    waiting call rather than just waiting on the specified time.
+
+    for example if time between two calls for delay are 10 seconds apart
+    but the timeout is set for 1 second then the second call will not block
+    but a successive third call will be blocked for 1 second before completing.
+    """
+
+    def __init__(self, timeout=1 / 10):
+        self.timeout = None
+        self.set_timeout(timeout)
+        self.start_time = time.time()
+        self._cond = threading.Condition()
+        # self.logger = logger.getChild(self.__class__.__name__)
+
+    def set_timeout(self, t):
+        if not isinstance(t, (int, float)):
+            raise ValueError("Expected int or float, got %r" % t)
+        if t <= -1:
+            raise ValueError("Delay cannot be smaller than 0")
+        self.timeout = t
+
+    def delay(self):
+        """Delays until the timeout is completed"""
+        with self._cond:
+            current_time = time.time()
+            diff_time = current_time - self.start_time
+            # prevent none type values from waiting infinitely
+            if isinstance(self.timeout, (int, float)) \
+                    and not diff_time >= self.timeout:
+                # self.logger.debug(
+                # "Waiting on request for [%r] seconds!" % self.timeout)
+                self._cond.wait(self.timeout - diff_time)
+            self.start_time = current_time
+
+
 def lru_cache(maxsize=255, timeout=None):
     """lru_cache(maxsize = 255, timeout = None) --> returns a decorator which
     returns an instance (a descriptor).
@@ -76,6 +117,7 @@ def lru_cache(maxsize=255, timeout=None):
     """
 
     class _LRU_Cache_class(object):
+        # noinspection PyShadowingNames
         def __init__(self, input_func, max_size, timeout):
             self._input_func = input_func
             self._max_size = max_size
@@ -149,7 +191,6 @@ _missing = object()
 
 
 class cached_property(property):
-
     """A decorator that converts a function into a lazy property.  The
     function wrapped is called the first time to retrieve the result
     and then that calculated result is used the next time you access
@@ -182,7 +223,7 @@ class cached_property(property):
     def __set__(self, obj, value):
         obj.__dict__[self.__name__] = value
 
-    def __get__(self, obj, type=None):
+    def __get__(self, obj, *args, **kwargs):
         if obj is None:
             return self
         value = obj.__dict__.get(self.__name__, _missing)
@@ -191,3 +232,127 @@ class cached_property(property):
             obj.__dict__[self.__name__] = value
         return value
 
+
+class CallbackFileWrapper(object):
+    """
+    Small wrapper around a fp object which will tee everything read into a
+    buffer, and when that file is closed it will execute a callback with the
+    contents of that buffer.
+
+    All attributes are proxied to the underlying file object.
+
+    This class uses members with a double underscore (__) leading prefix so as
+    not to accidentally shadow an attribute.
+    """
+
+    def __init__(self, fp, callback=None):
+        self.__buf = BytesIO()
+        self.__fp = fp
+        self.__callback = callback
+        self.__once_done = False
+
+    def __getattr__(self, name):
+        # The vagaries of garbage collection means that self.__fp is
+        # not always set.  By using __getattribute__ and the private
+        # name[0] allows looking up the attribute value and raising an
+        # AttributeError when it doesn't exist. This stop things from
+        # infinitely recurring calls to getattr in the case where
+        # self.__fp hasn't been set.
+        #
+        # [0] https://docs.python.org/2/reference/expressions.html#atom-identifiers
+        fp = self.__getattribute__("_CallbackFileWrapper__fp")
+        return getattr(fp, name)
+
+    def __is_fp_closed(self):
+        try:
+            return self.__fp.fp is None
+
+        except AttributeError:
+            pass
+
+        try:
+            return self.__fp.closed
+
+        except AttributeError:
+            pass
+
+        return False
+
+    def close(self):
+        if self.__callback:
+            # self.__callback(self.__buf.getvalue())
+            self.__callback()
+
+        # We assign this to None here, because otherwise we can get into
+        # really tricky problems where the CPython interpreter dead locks
+        # because the callback is holding a reference to something which
+        # has a __del__ method. Setting this to None breaks the cycle
+        # and allows the garbage collector to do it's thing normally.
+        self.__callback = None
+        self.__once_done = True
+        return self.__getattribute__("_CallbackFileWrapper__fp").close()
+
+    def rewind(self):
+        if self.__once_done:
+            self.__fp.close()
+            self.__fp = self.__buf
+            self.__buf = BytesIO()
+            self.__fp.seek(0)
+            self.__once_done = False
+
+    def read(self, amt=None):
+        data = self.__fp.read(amt)
+        self.__buf.write(data)
+        if self.__is_fp_closed():
+            self.close()
+        return data
+
+    def _safe_read(self, amt):
+        data = self.__fp._safe_read(amt)
+        if amt == 2 and data == b"\r\n":
+            # urllib executes this read to toss the CRLF at the end
+            # of the chunk.
+            return data
+
+        self.__buf.write(data)
+        if self.__is_fp_closed():
+            self.close()
+        return data
+
+
+class RewindableResponse(object):
+    """
+    Used by :class:`WebPage` to store current resource
+    content to minimize the number of requests made while
+    working with a page.
+    """
+    def __init__(self, fp):
+        self.fp = fp
+        self.buffer = BytesIO()
+        self.once_done = threading.Event()
+
+    def __getattr__(self, name):
+        fp = self.__getattribute__("fp")
+        return getattr(fp, name)
+
+    @classmethod
+    def from_response(cls, response):
+        ans = cls(response.raw)
+        return ans
+
+    def read(self, n=None):
+        if self.fp.closed:
+            self.once_done.set()
+        data = self.fp.read(n)
+        self.buffer.write(data)
+        if self.fp.closed:
+            self.once_done.set()
+        return data
+
+    def rewind(self):
+        if not self.once_done.is_set():
+            return False
+        self.fp.close()
+        self.buffer.seek(0)
+        self.fp = self.buffer
+        self.buffer = BytesIO()

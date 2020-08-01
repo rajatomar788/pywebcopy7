@@ -1,33 +1,24 @@
 # Copyright 2020; Raja Tomar
 # See license for more details
 import logging
+import operator
 import os
-from operator import attrgetter
 
 from lxml.html import HTMLParser
 from lxml.html import XHTML_NAMESPACE
 from lxml.html import parse
+from requests.models import Response
 
 from .elements import HTMLResource
+from .helpers import RewindableResponse
 from .schedulers import crawler_scheduler
 from .schedulers import default_scheduler
+from .schedulers import threading_crawler_scheduler
+from .schedulers import threading_default_scheduler
 
 __all__ = ['WebPage', 'Crawler']
 
 logger = logging.getLogger(__name__)
-
-
-class State(object):
-    """Used by :class:`WebPage` to store current resource content
-    to minimize the number of requests made while working with a page.
-    """
-
-    @classmethod
-    def from_response(cls, response):
-        raise NotImplementedError()
-
-    def read(self, n=None):
-        raise NotImplementedError()
 
 
 class WebPage(HTMLResource):
@@ -37,7 +28,10 @@ class WebPage(HTMLResource):
             raise AttributeError("Configuration is not setup.")
 
         session = config.create_session()
-        scheduler = default_scheduler()
+        if config.get('threaded'):
+            scheduler = threading_default_scheduler()
+        else:
+            scheduler = default_scheduler()
         context = config.create_context()
         ans = cls(session, config, scheduler, context)
         # url = parse_url(config.get('project_url'))
@@ -45,17 +39,71 @@ class WebPage(HTMLResource):
         #     ans.get(config.get('project_url'))
         return ans
 
-    def __repr__(self):
-        return '<WebPage: [%s]>' % getattr(self.response, 'url', 'None')
+    def __str__(self):
+        return '<{}: {}>'.format(self.__class__.__name__, self.url)
 
     element_map = property(
-        attrgetter('scheduler.data'),
+        operator.attrgetter('scheduler.data'),
         doc="Registry of different handler for different tags."
     )
 
+    def set_response(self, response):
+        if not isinstance(response, Response):
+            raise ValueError(
+                "Expected %r, got %r" % (Response, response))
+        # Wrap the response file with a wrapper that will cache the
+        #   response when the stream has been consumed.
+        # urllib_response = response.raw
+        # urllib_response._fp = CallbackFileWrapper(
+        #     urllib_response._fp,
+        #     urllib_response.release_conn,
+        # )
+        # if urllib_response.chunked:
+        #     super_update_chunk_length = urllib_response._update_chunk_length
+        #
+        #     def _update_chunk_length(s):
+        #         super_update_chunk_length()
+        #         if s.chunk_left == 0:
+        #             s._fp.close()
+        #
+        #     urllib_response._update_chunk_length = types.MethodType(
+        #         _update_chunk_length, urllib_response
+        #     )
+        response.raw.decode_content = True
+        response.raw = RewindableResponse(response.raw)
+        return super(WebPage, self).set_response(response)
+
+    def get_source(self, buffered=False):
+        """Returns a rewindable io wrapper.
+        """
+        raw = getattr(self.response, 'raw', None)
+        if raw is None:
+            raise ValueError("HTTP Response is not set!")
+
+        # if raw.closed:
+        #     raise ValueError(
+        #         "I/O operations are closed for the raw source.")
+
+        # Return the raw object which will decode the
+        # buffer while reading otherwise errors will follow
+        raw.decode_content = True
+
+        # fp = getattr(raw, '_fp', None)
+        # assert fp is not None, "Raw source wrapper is missing!"
+        # assert isinstance(fp, CallbackFileWrapper), \
+        #     "Raw source wrapper is missing!"
+        raw.rewind()
+        if buffered:
+            return raw, self.encoding
+        return raw.read(), self.encoding
+
+    def refresh(self):
+        raise NotImplementedError()
+        # self.set_response(self.session.get(self.url, stream=True))
+
     def get_forms(self):
         """Returns a list of form elements available on the page."""
-        source, encoding = super(HTMLResource, self).get_source(raw_fp=True)
+        source, encoding = self.get_source(buffered=True)
         return parse(
             source, parser=HTMLParser(encoding=encoding, collect_ids=False)
         ).xpath(
@@ -66,9 +114,6 @@ class WebPage(HTMLResource):
     def submit_form(self, form, **extra_values):
         """
         Helper function to submit a form.
-
-        .. todo::
-            check documentation.
 
         You can use this like::
 
@@ -81,8 +126,8 @@ class WebPage(HTMLResource):
             wp.get_links()
 
         The action is one of 'GET' or 'POST', the URL is the target URL as a
-        string, and the values are a sequence of ``(name, value)`` tuples with the
-        form data.
+        string, and the values are a sequence of ``(name, value)`` tuples
+        with the form data.
         """
         values = form.form_values()
         if extra_values:
@@ -168,7 +213,10 @@ class Crawler(WebPage):
             raise AttributeError("Configuration is not setup.")
 
         session = config.create_session()
-        scheduler = crawler_scheduler()
+        if config.get('threaded'):
+            scheduler = threading_crawler_scheduler()
+        else:
+            scheduler = crawler_scheduler()
         context = config.create_context()
         ans = cls(session, config, scheduler, context)
         # url = parse_url(config.get('project_url'))

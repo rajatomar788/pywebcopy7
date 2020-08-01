@@ -1,14 +1,15 @@
 # Copyright 2020; Raja Tomar
 # See license for more details
+import inspect
 import logging
 import re
-import inspect
 from collections import Iterator
 
+import requests
 from lxml import etree
 from lxml.html import _nons
-from lxml.html import tostring
 from lxml.html import fromstring
+from lxml.html import tostring
 from lxml.html import XHTML_NAMESPACE
 from lxml.html.clean import Cleaner
 from lxml.html.defs import link_attrs
@@ -20,13 +21,12 @@ __all__ = ['iterparse', 'MultiParser', 'Element', 'unquote_match', 'links']
 
 logger = logging.getLogger(__name__)
 
-
 # Attributes which contains multiple links.
 srcset_attrs = frozenset([
     'srcset', 'data-srcset', 'src-set', 'imageset',
 ])
 _iter_srcset_urls = re.compile(r"([^\s,]{4,})", re.MULTILINE).finditer
-_iter_css_urls = re.compile(r'url\(('+'["][^"]*["]|'+"['][^']*[']|"+r'[^)]*)\)', re.I).finditer
+_iter_css_urls = re.compile(r'url\((' + '["][^"]*["]|' + "['][^']*[']|" + r'[^)]*)\)', re.I).finditer
 _iter_css_imports = re.compile(r'@import "(.*?)"').finditer
 _archive_re = re.compile(r'[^ ]+')
 _parse_meta_refresh_url = re.compile(r'[^;=]*;\s*(?:url\s*=\s*)?(?P<url>.*)$', re.I).search
@@ -55,14 +55,14 @@ class ElementBase(etree.ElementBase):
         if new_url is None or new_url == old_url:
             return
         if attr is None:
-            new = self.text[:pos] + new_url + self.text[pos+len(old_url):]
+            new = self.text[:pos] + new_url + self.text[pos + len(old_url):]
             self.text = new
         else:
             cur = self.get(attr)
             if not pos and len(cur) == len(old_url):
                 new = new_url  # most common case
             else:
-                new = cur[:pos] + new_url + cur[pos+len(old_url):]
+                new = cur[:pos] + new_url + cur[pos + len(old_url):]
             self.set(attr, new)
         #: For the new url to work properly we need to remove
         #: any sort of url check attributes present in element.
@@ -81,7 +81,7 @@ def iterparse(source, encoding=None, events=None,
         3. Make a additional no-op iterator and a forms iterator.
 
     """
-    encoding = encoding or 'iso-8859-1'     # rfc default web encoding
+    encoding = encoding or 'iso-8859-1'  # rfc default web encoding
     parser = etree.HTMLPullParser(events=events, encoding=encoding, **kwargs)
     lookup = etree.ElementDefaultClassLookup(ElementBase)
     parser.set_element_class_lookup(lookup)
@@ -121,8 +121,8 @@ def iterparse(source, encoding=None, events=None,
         try:
             root = parser.close()
         except etree.XMLSyntaxError:
-            parser.feed('<html></html>'.encode(
-                encoding, 'xmlcharrefreplace'))
+            parser.feed(
+                '<html></html>'.encode(encoding, 'xmlcharrefreplace'))
             root = parser.close()
 
         # parser could generate end events for html and
@@ -134,6 +134,7 @@ def iterparse(source, encoding=None, events=None,
         #         yield child
 
         it.root = root
+        # noinspection PyUnusedLocal
         root = None
         # XXX No implicit source closing
         # if close_source:
@@ -264,7 +265,72 @@ class MultiParser(object):  # pragma: no cover
         self._encoding = encoding  # represents your provided encoding
         self.element = element  # internal lxml element
         self._decoded_html = False  # internal switch to tell if html has been decoded
-        self.default_encoding = 'iso-8859-1'  # a standard encoding defined by www
+        self.default_encoding = 'iso-8859-1'  # a standard encoding defined by w3c
+
+    def request(self, method, url, **params):
+        """Fetches the Html content from Internet using the requests.
+        You can any requests params which will be passed to the library
+        itself.
+        The requests arguments you supply will also be applied to the
+        global session meaning all the files will be downloaded using these
+        settings.
+
+        :param method: http verb for transport.
+        :param url: url of the page to fetch
+        :param params: keyword arguments which `requests` module may accept.
+        """
+        resp = requests.request(method, url, stream=True, **params)
+        resp.raise_for_status()
+        self._html = resp.content
+
+    def get(self, url, **params):
+        return self.request('GET', url, **params)
+
+    def post(self, url, **params):
+        return self.request('POST', url, **params)
+
+    def get_forms(self):
+        """Returns a list of form elements available on the page."""
+        return fromstring(
+            self.html
+        ).xpath(
+            "descendant-or-self::form|descendant-or-self::x:form",
+            namespaces={'x': XHTML_NAMESPACE}
+        )
+
+    def submit_form(self, form, url=None, **extra_values):
+        """
+        Helper function to submit a form.
+
+        .. todo::
+            check documentation.
+
+        You can use this like::
+
+            wp = WebPage()
+            wp.get('http://httpbin.org/forms/')
+            form = wp.get_forms()[0]
+            form.inputs['email'].value = 'bar' # etc
+            form.inputs['password'].value = 'baz' # etc
+            wp.submit_form(form)
+            wp.get_links()
+
+        The action is one of 'GET' or 'POST', the URL is the target URL as a
+        string, and the values are a sequence of ``(name, value)`` tuples with the
+        form data.
+        """
+        values = form.form_values()
+        if extra_values:
+            if hasattr(extra_values, 'items'):
+                extra_values = extra_values.items()
+            values.extend(extra_values)
+
+        if url is None:
+            if form.action:
+                url = form.action
+            else:
+                url = form.base_url
+        return self.request(form.method, url, data=values)
 
     @property
     def raw_html(self):

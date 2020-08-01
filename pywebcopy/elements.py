@@ -96,9 +96,12 @@ def retrieve_resource(content, location, url=None, overwrite=False):
     :param overwrite: (optional) whether to overwrite an existing file.
     :return: rendered location or False if failed.
     """
-    assert content is not None, "Content can't be of NoneType."
-    assert location is not None, "Context can't be of NoneType."
-    assert url is not None, "Url can't be of NoneType."
+    if content is None:
+        raise ValueError("Content can't be of NoneType.")
+    if location is None:
+        raise ValueError("Location can't be of NoneType or empty str.")
+    if url is None:
+        raise ValueError("Url can't be of NoneType.")
 
     logger.debug(
         "[File] Preparing to write file from <%r> to the disk at <%r>."
@@ -163,23 +166,15 @@ class GenericResource(object):
     def __repr__(self):
         return '<%s(url=%s)>' % (self.__class__.__name__, self.context.url)
 
-    def set_response(self, response):
-        """Update the response attribute of this object.
+    def __del__(self):
+        self.close()
 
-        It also updates the content_type and encoding as reported by the
-        server implicitly for better detection of contents."""
-        self.response = response
-        self.__dict__.pop('url', None)
-        self.__dict__.pop('filepath', None)
-        self.__dict__.pop('filename', None)
-        if response.ok:
-            #: Clear the cached properties
-            self.__dict__.pop('content_type', None)
-            self.__dict__.pop('encoding', None)
-            self.context = self.context.with_values(
-                url=response.url,
-                content_type=self.content_type
-            )
+    def close(self):
+        if self.response is not None:
+            if hasattr(self.response, 'raw'):
+                if hasattr(self.response.raw, 'release_conn'):
+                    getattr(self.response, 'raw').release_conn()
+            del self.response
 
     @cached_property
     def filepath(self):
@@ -238,6 +233,25 @@ class GenericResource(object):
     def viewing_js(self):
         return self.content_type in self.js_content_types
 
+    def set_response(self, response):
+        """Update the response attribute of this object.
+
+        It also updates the content_type and encoding as reported by the
+        server implicitly for better detection of contents."""
+        self.response = response
+
+        #: Clear the cached properties
+        self.__dict__.pop('url', None)
+        self.__dict__.pop('filepath', None)
+        self.__dict__.pop('filename', None)
+        if response.ok:
+            self.__dict__.pop('content_type', None)
+            self.__dict__.pop('encoding', None)
+            self.context = self.context.with_values(
+                url=response.url,
+                content_type=self.content_type
+            )
+
     def request(self, method, url, **params):
         """Fetches the Html content from Internet using the requests.
         You can any requests params which will be passed to the library
@@ -263,26 +277,24 @@ class GenericResource(object):
     def post(self, url, **params):
         return self.request('POST', url, **params)
 
-    def resolve(self, parent_path=None):
-        """Calculates the location at which this response should be stored as a file."""
-        filepath = self.filepath
-        if not isinstance(filepath, string_types):
-            raise ValueError("Invalid filepath [%r]" % filepath)
-        if parent_path and isinstance(parent_path, string_types):
-            return pathname2url(relate(filepath, parent_path))
-        return pathname2url(filepath)
+    def get_source(self, buffered=False):
+        if self.context is None:
+            raise ValueError("Context not set.")
+        if self.context.base_path is None:
+            raise ValueError("Context Base Path is not set!")
+        if self.context.base_url is None:
+            raise ValueError("Context Base url is not Set!")
+        if self.response is None:
+            raise ValueError("Response attribute is not Set!")
+        if getattr(self.response.raw, 'closed', True):
+            raise ValueError(
+                "I/O operations closed on the response object.")
+        if not hasattr(self.response.raw, 'read'):
+            raise ValueError(
+                "Response must have a raw file like object!")
 
-    def get_source(self, raw_fp=False):
-        assert self.context is not None, "Context not set."
-        assert self.context.base_path is not None, "Context Base Path is not set!"
-        assert self.context.base_url is not None, "Context Base url is not Set!"
-        assert self.response is not None, "Response attribute is not Set!"
-        assert hasattr(self.response.raw, 'read'), "Response must have a raw file like object!"
-
-        if raw_fp:
-            if hasattr(self.response.raw, 'closed') and self.response.raw.closed:
-                self.response = self.session.get(self.url)
-            self.response.raw.decode_content = True
+        self.response.raw.decode_content = True
+        if buffered:
             return self.response.raw, self.encoding
         return self.response.content, self.encoding
 
@@ -310,7 +322,8 @@ class GenericResource(object):
         else:
             if not hasattr(self.response, 'raw'):
                 self.logger.error(
-                    "Response object for url <%s> has no attribute 'raw'!" % self.url)
+                    "Response object for url <%s> has no attribute 'raw'!"
+                    % self.url)
                 content = BytesIO(self.response.content)
             else:
                 content = self.response.raw
@@ -320,11 +333,21 @@ class GenericResource(object):
         del content
         return self.filepath
 
+    def resolve(self, parent_path=None):
+        """Calculates the location at which this response should be stored as a file."""
+        filepath = self.filepath
+        if not isinstance(filepath, string_types):
+            raise ValueError("Invalid filepath [%r]" % filepath)
+        if parent_path and isinstance(parent_path, string_types):
+            return pathname2url(relate(filepath, parent_path))
+        return pathname2url(filepath)
+
 
 class HTMLResource(GenericResource):
     """Interpreter for resource written in or reported as html."""
+
     def parse(self, **kwargs):
-        source, encoding = super(HTMLResource, self).get_source(raw_fp=True)
+        source, encoding = self.get_source(buffered=True)
         return iterparse(
             source, encoding, include_meta_charset_tag=True, **kwargs)
 
@@ -382,7 +405,7 @@ class HTMLResource(GenericResource):
 
 class CSSResource(GenericResource):
     def parse(self):
-        return self.get_source(raw_fp=False)
+        return self.get_source(buffered=False)
 
     def repl(self, match, encoding=None, fmt=None):
         fmt = fmt or '%s'
@@ -411,25 +434,30 @@ class CSSResource(GenericResource):
         source, encoding = parsing_buffer
         source = re.sub(
             (r'url\((' + '["][^"]*["]|' + "['][^']*[']|" + r'[^)]*)\)').encode(encoding),
-            partial(self.repl, encoding=encoding, fmt="url('%s')"), source, flags=re.IGNORECASE
+            partial(self.repl, encoding=encoding, fmt="url('%s')"),
+            source, flags=re.IGNORECASE
         )
         source = re.sub(
             r'@import "(.*?)"'.encode(encoding),
-            partial(self.repl, encoding=encoding, fmt='"%s"'), source, flags=re.IGNORECASE
+            partial(self.repl, encoding=encoding, fmt='"%s"'),
+            source, flags=re.IGNORECASE
         )
         return BytesIO(source)
 
     def _retrieve(self):
         """Writes the modified buffer to the disk."""
         if not self.viewing_css():
-            self.logger.info("Resource of type [%s] is not CSS." % self.content_type)
+            self.logger.info(
+                "Resource of type [%s] is not CSS." % self.content_type)
             return super(CSSResource, self)._retrieve()
 
         if not self.response.ok:
-            self.logger.debug("Resource at [%s] is NOT ok and will be NOT processed." % self.url)
+            self.logger.debug(
+                "Resource at [%s] is NOT ok and will be NOT processed." % self.url)
             return super(CSSResource, self)._retrieve()
 
-        self.logger.debug("Resource at [%s] is ok and will be processed." % self.url)
+        self.logger.debug(
+            "Resource at [%s] is ok and will be processed." % self.url)
         retrieve_resource(
             self.extract_children(self.parse()),
             self.filepath, self.url, self.config.get('overwrite')
@@ -440,7 +468,7 @@ class CSSResource(GenericResource):
 
 class JSResource(GenericResource):
     def parse(self):
-        return self.get_source(raw_fp=False)
+        return self.get_source(buffered=False)
 
     def repl(self, match, encoding=None):
         url, _ = unquote_match(match.group(1).decode(encoding), match.start(1))
@@ -537,7 +565,7 @@ class VoidResource(GenericResource):
     def get(self, url, **params):
         return None
 
-    def get_source(self, raw_fp=False):
+    def get_source(self, buffered=False):
         return None
 
     def retrieve(self):

@@ -111,7 +111,7 @@ class TestIterParse(unittest.TestCase):
 class TestElementBase(unittest.TestCase):
 
     def test_remove_csrf_checks(self):
-        token = '2adfa2edaf'
+        token = 'token'
         e = pywebcopy.parsers.ElementBase('link')
         e.set('href', '#')
         e.set('crossorigin', token)
@@ -431,6 +431,113 @@ class TestFullHTMLParsing(unittest.TestCase):
 
     # Single instance of the parser to avoid creating anew each time.
     context = iterparse(BytesIO(html.encode('utf-8')))
+
+    # NOTE: Methods are ordered in the sequence they will be parsed
+
+    def test_a_first_meta_element(self):
+        el, attr, url, pos = next(self.context)
+        self.assertEqual(el.tag, 'meta')
+        self.assertEqual(url, 'http://nx-domain.com/redirect')
+        self.assertEqual(pos, 2)
+        self.assertEqual(attr, 'content')
+        self.assertEqual(el.attrib, {'http-equiv': 'refresh', 'content': "3;http://nx-domain.com/redirect"})
+
+    def test_b_first_link_element(self):
+        el, attr, url, pos = next(self.context)
+        self.assertEqual(el.tag, 'link')
+        self.assertEqual(url, 'css/main.css')
+        self.assertEqual(pos, 0)
+        self.assertEqual(attr, 'href')
+        self.assertEqual(el.attrib, {'rel': 'stylesheet', 'href': "css/main.css"})
+
+    def test_c_second_link_element(self):
+        el, attr, url, pos = next(self.context)
+        self.assertEqual(el.tag, 'link')
+        self.assertEqual(url, 'http://nx-domain.com/css/style.css')
+        self.assertEqual(pos, 0)
+        self.assertEqual(attr, 'href')
+        self.assertEqual(el.attrib, {'rel': 'stylesheet', 'href': 'http://nx-domain.com/css/style.css'})
+
+    def test_d_style_tag_css_url_element(self):
+        el, attr, url, pos = next(self.context)
+        self.assertEqual(el.tag, 'style')
+        self.assertEqual(url, "img/background.png")
+        self.assertEqual(pos, 49)
+        self.assertEqual(attr, None)
+        self.assertEqual(el.attrib, {})
+
+    def test_e_style_tag_css_import_element(self):
+        el, attr, url, pos = next(self.context)
+        self.assertEqual(el.tag, 'style')
+        self.assertEqual(url, "css/theme.css")
+        self.assertEqual(pos, 10)
+        self.assertEqual(attr, None)
+        self.assertEqual(el.attrib, {})
+
+    def test_f_first_anchor_element(self):
+        el, attr, url, pos = next(self.context)
+        self.assertEqual(el.tag, 'a')
+        self.assertEqual(url, "#")
+        self.assertEqual(pos, 0)
+        self.assertEqual(attr, 'href')
+        self.assertEqual(el.attrib, {'href': '#'})
+
+    def test_g_second_anchor_element(self):
+        el, attr, url, pos = next(self.context)
+        self.assertEqual(el.tag, 'a')
+        self.assertEqual(url, "javascript:void(0);")
+        self.assertEqual(pos, 0)
+        self.assertEqual(attr, 'href')
+        self.assertEqual(el.attrib, {'href': "javascript:void(0);"})
+
+    def test_h_third_anchor_element(self):
+        el, attr, url, pos = next(self.context)
+        self.assertEqual(el.tag, 'a')
+        self.assertEqual(url, "http://new-site.com")
+        self.assertEqual(pos, 0)
+        self.assertEqual(attr, 'href')
+        self.assertEqual(el.attrib, {'href': "http://new-site.com"})
+
+    def test_i_inline_style_element(self):
+        el, attr, url, pos = next(self.context)
+        self.assertEqual(el.tag, 'div')
+        self.assertEqual(url, "img/background.png")
+        self.assertEqual(pos, 17)
+        self.assertEqual(attr, 'style')
+        self.assertEqual(el.attrib, {'style': "background: url('img/background.png');"})
+
+    def test_j_first_img_element(self):
+        el, attr, url, pos = next(self.context)
+        self.assertEqual(el.tag, 'img')
+        self.assertEqual(url, "img/img1.png")
+        self.assertEqual(pos, 0)
+        self.assertEqual(attr, 'src')
+        self.assertEqual(el.attrib, {'src': "img/img1.png", 'alt': 'img1-alt'})
+
+    def test_k_second_img_element(self):
+        el, attr, url, pos = next(self.context)
+        self.assertEqual(el.tag, 'img')
+        self.assertEqual(url, "http://static-site.com/img/img3.png")
+        self.assertEqual(pos, 0)
+        self.assertEqual(attr, 'src')
+        self.assertEqual(el.attrib, {'src': "http://static-site.com/img/img3.png", 'alt': ""})
+
+    def test_y_empty_iterator(self):
+        with self.assertRaises(StopIteration):
+            next(self.context)
+        self.assertEqual(len(list(self.context)), 0)
+
+    def test_z_root_tree_attribute(self):
+        self.assertTrue(hasattr(self.context.root, 'getroottree'))
+        self.assertTrue(isinstance(self.context.root, lxml.etree.ElementBase))
+        self.assertTrue(isinstance(self.context.root.getroottree(), lxml.etree._ElementTree))
+
+
+class TestFullLatin1EncodedHTMLParsing(unittest.TestCase):
+
+    # Single instance of the parser to avoid creating anew each time.
+    context = iterparse(
+        BytesIO(html.encode('latin1', 'replace')), encoding='latin1')
 
     # NOTE: Methods are ordered in the sequence they will be parsed
 

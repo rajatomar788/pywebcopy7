@@ -80,7 +80,7 @@ default_config = {
     'project_url': None,
     'project_name': None,
     'project_folder': None,
-    'delay': None,
+    'threaded': None,
     'tree_type': HIERARCHY,
 
     # TODO: Allow a `last-modified-time` overwrite mode
@@ -188,7 +188,7 @@ class ConfigHandler(CaseInsensitiveDict):
             os.makedirs(norm_p)
 
     def setup_config(self, project_url=None, project_folder=None, project_name=None,
-                     overwrite=False, bypass_robots=False, debug=False, delay=None):
+                     overwrite=False, bypass_robots=False, debug=False, delay=None, threaded=None):
         """Sets up the complete config parts which requires a project_url to be present.
 
         Complete configuration is done here and subject to change according to application structure
@@ -198,7 +198,8 @@ class ConfigHandler(CaseInsensitiveDict):
             overwrite=overwrite,
             bypass_robots=bypass_robots,
             debug=debug,
-            delay=delay
+            delay=delay,
+            threaded=threaded
         )
         self.set_project_url(project_url)
         self.setup_paths(project_folder, project_name)
@@ -240,7 +241,8 @@ def get_config(project_url,
                project_name=None,
                bypass_robots=False,
                debug=False,
-               delay=None):
+               delay=None,
+               threaded=None):
     """Create a ConfigHandler instance and return it.
     If the project_folder is not supplied it will use the users Tempdir.
     """
@@ -267,6 +269,7 @@ def get_config(project_url,
         project_name=project_name,
         bypass_robots=bypass_robots,
         debug=debug,
-        delay=delay
+        delay=delay,
+        threaded=threaded,
     )
     return ans
