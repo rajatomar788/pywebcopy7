@@ -416,10 +416,10 @@ def _coerce_args(*args):
     return _decode_args(args) + (_encode_result,)
 
 
-_windows_device_files = (
-        set(['CON', 'PRN', 'AUX', 'NUL']) |
-        set(['COM%d' % i for i in range(1, 10)]) |
-        set(['LPT%d' % i for i in range(1, 10)])
+_windows_device_files = frozenset(
+        ['CON', 'PRN', 'AUX', 'NUL'] +
+        ['COM%d' % i for i in range(1, 10)] +
+        ['LPT%d' % i for i in range(1, 10)]
 )
 
 _filename_ascii_strip_re = re.compile(r'[^A-Za-z0-9_.-]+')

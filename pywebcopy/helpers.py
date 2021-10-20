@@ -2,14 +2,14 @@
 # See license for more details
 import time
 import functools
-import collections
 import threading
 
 from requests.compat import OrderedDict
 from six import BytesIO
+from six.moves.collections_abc import MutableMapping
 
 
-class RecentOrderedDict(collections.MutableMapping):
+class RecentOrderedDict(MutableMapping):
     """
     A custom variant of the OrderedDict that ensures that the object most
     recently inserted or retrieved from the dictionary is at the top of the

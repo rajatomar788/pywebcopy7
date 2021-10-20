@@ -1,6 +1,5 @@
 # Copyright 2019; Raja Tomar
 import unittest
-from collections import Iterator
 
 import lxml.etree
 from lxml.html import Element
@@ -8,6 +7,7 @@ from lxml.html import tostring
 from six import BytesIO
 from six import StringIO
 from six import next
+from six.moves.collections_abc import Iterator
 
 from pywebcopy.parsers import iterparse
 from pywebcopy.parsers import links
@@ -230,6 +230,18 @@ class TestLinkSearcher(unittest.TestCase):
         source.text = 'console.log(hello);'
         elements = list(links(source))
         self.assertEqual(len(elements), 0)
+
+    def test_script_element_with_url_in_the_text(self):
+        source = Element('script')
+        source.text = 'var background = "url(\'image.jpg\')"'
+        elements = list(links(source))
+        self.assertEqual(len(elements), 1)
+        el, attr, url, pos = elements.pop()
+        self.assertEqual(url, 'image.jpg')
+        self.assertEqual(pos, 23)
+        self.assertEqual(attr, None)
+        self.assertEqual(el.tag, 'script')
+        self.assertEqual(el.attrib, {})
 
     def test_form_element(self):
         source = Element('form', {'action': '#'})

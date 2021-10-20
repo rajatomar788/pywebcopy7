@@ -18,6 +18,7 @@ from requests.structures import CaseInsensitiveDict
 from six.moves.urllib.parse import urlsplit
 from six.moves.urllib.parse import urlunsplit
 from six.moves.urllib.robotparser import RobotFileParser
+from six import integer_types
 
 from .__version__ import __title__
 from .__version__ import __version__
@@ -25,7 +26,7 @@ from .__version__ import __version__
 logger = logging.getLogger(__name__)
 
 
-class RobotsTxtDisallowed(RequestException):
+class UrlDisallowed(RequestException):
     """Access to requested url disallowed by the robots.txt rules."""
 
 
@@ -172,11 +173,10 @@ class Session(requests.Session):
             #: No worries :)
             return True
 
-        current_time = time.time()
-        diff_time = current_time - access_rules.mtime()
+        diff_time = time.time() - access_rules.mtime()
         delay = request_rate.seconds / request_rate.requests
 
-        if isinstance(delay, (int, float)) and not diff_time >= delay:
+        if isinstance(delay, integer_types) and not diff_time >= delay:
             self.logger.debug(
                 "Waiting on request for [%r] seconds!" % delay)
             time.sleep(delay)
@@ -187,10 +187,9 @@ class Session(requests.Session):
         if not isinstance(request, requests.PreparedRequest):
             raise ValueError('You can only send PreparedRequests.')
         if not self.is_allowed(request, kwargs.get('timeout', None)):
-            self.logger.error(
-                "Access to [%r] disallowed by the robots.txt rules.", request.url)
-            raise RobotsTxtDisallowed(
-                "Access to [%r] disallowed by the robots.txt rules." % request.url)
+            err = "Access to [%r] disallowed by the Session rules." % request.url
+            self.logger.error(err)
+            raise UrlDisallowed(err)
 
         self.logger.info('[%s] [%s]' % (request.method, request.url))
         return super(Session, self).send(request, **kwargs)
@@ -204,4 +203,8 @@ class Session(requests.Session):
         ans.delay = config.get('delay')
         if config.get('http_cache'):
             ans.enable_http_cache()
+        # XXX I don't know if it will work?
+        # ans.headers.update(
+        #     {'Accept': ', '.join(config.get('allowed_file_types'))}
+        # )
         return ans

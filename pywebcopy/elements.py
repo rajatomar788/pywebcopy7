@@ -470,7 +470,9 @@ class JSResource(GenericResource):
     def parse(self):
         return self.get_source(buffered=False)
 
-    def repl(self, match, encoding=None):
+    def repl(self, match, encoding=None, fmt=None):
+        fmt = fmt or '%s'
+
         url, _ = unquote_match(match.group(1).decode(encoding), match.start(1))
         self.logger.debug("Sub-JS resource found: [%s]" % url)
 
@@ -485,45 +487,27 @@ class JSResource(GenericResource):
         # self.children.add(ans)
         self.logger.debug("Submitting resource: [%s] to the scheduler." % url)
         self.scheduler.handle_resource(ans)
-        re_enc = (ans.resolve(self.filepath)).encode(encoding)
+        re_enc = (fmt % ans.resolve(self.filepath)).encode(encoding)
         self.logger.debug("Re-encoded the resource: [%s] as [%r]" % (url, re_enc))
         return re_enc
 
     # noinspection PyTypeChecker
     def extract_children(self, parsing_buffer):
-        """Schedules the linked files for downloading then resolves their references."""
+        """Schedules the linked files for downloading then resolves their references.
+
+        ..fixme::
+            It only recognises one type of url inside of the js.
+            i.e. `url('example.com')`. Make it universal.
+        """
         source, encoding = parsing_buffer
-        # P.S. Regex is from this github repo under MIT license
+        # P.S. There is one interesting Regex on this github repo under MIT license
         # https://github.com/GerbenJavado/LinkFinder/
         source = re.sub(
-            (r"""
-            (?:"|')                               # Start newline delimiter
-            (
-                ((?:[a-zA-Z]{1,10}://|//)           # Match a scheme [a-Z]*1-10 or //
-                [^"'/]{1,}\.                        # Match a domain-name (any character + dot)
-                [a-zA-Z]{2,}[^"']{0,})              # The domain-extension and/or path
-                |
-                ((?:/|\.\./|\./)                    # Start with /,../,./
-                [^"'><,;| *()(%%$^/\\\[\]]          # Next character can't be...
-                [^"'><,;|()]{1,})                   # Rest of the characters can't be
-                |
-                ([a-zA-Z0-9_\-/]{1,}/               # Relative endpoint with /
-                [a-zA-Z0-9_\-/]{1,}                 # Resource name
-                \.(?:[a-zA-Z]{1,4}|action)          # Rest + extension (length 1-4 or action)
-                (?:[\?|#][^"|']{0,}|))              # ? or # mark with parameters
-                |
-                ([a-zA-Z0-9_\-/]{1,}/               # REST API (no extension) with /
-                [a-zA-Z0-9_\-/]{3,}                 # Proper REST endpoints usually have 3+ chars
-                (?:[\?|#][^"|']{0,}|))              # ? or # mark with parameters
-                |
-                ([a-zA-Z0-9_\-]{1,}                 # filename
-                \.(?:php|asp|aspx|jsp|json|
-                     action|html|js|txt|xml)        # . + extension
-                (?:[\?|#][^"|']{0,}|))              # ? or # mark with parameters
-            )
-            (?:"|')                               # End newline delimiter
-            """).encode(encoding),
-            partial(self.repl, encoding=encoding), source, flags=re.IGNORECASE
+            (r'url\((' + '["][^"]*["]|' + "['][^']*[']|" + r'[^)]*)\)'
+             ).encode(encoding),
+            partial(
+                self.repl, encoding=encoding, fmt='url("%s")'
+            ), source, flags=re.IGNORECASE
         )
         return BytesIO(source)
 

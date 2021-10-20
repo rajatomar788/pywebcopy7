@@ -11,6 +11,7 @@ from pywebcopy.__version__ import __description__
 from pywebcopy import save_webpage
 from pywebcopy import save_website
 
+
 parser = optparse.OptionParser(
     usage='%prog [-p|--page|-s|--site|-t|--tests] '
           '[--url=URL [,--location=LOCATION [,--name=NAME '

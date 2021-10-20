@@ -53,7 +53,7 @@ def add_stderr_logger(name=__title__, level=logging.DEBUG):
     )
     root.addHandler(handler)
     root.setLevel(level)
-    root.debug('Added a stderr logging handler to logger: %s', __name__)
+    root.debug('Added a stderr logging handler to logger: %s', name)
     return handler
 
 
@@ -91,7 +91,7 @@ default_config = {
     'http_headers': default_headers(**safe_http_headers),
 
     # TODO: Disabled for now until I figure it out.
-    # 'allowed_file_types': safe_file_types,
+    'allowed_file_types': safe_file_types,
 
     # TODO: domain blocking and whitelisting
 }
@@ -119,7 +119,7 @@ class ConfigHandler(CaseInsensitiveDict):
         if isinstance(item, string_types) and item.startswith('set_'):
             if item[4:] in self:
                 return partial(self.__setitem__, item[4:])
-        if isinstance(item, string_types) and item.startswith('get_'):
+        elif isinstance(item, string_types) and item.startswith('get_'):
             if item[4:] in self:
                 return partial(self.__getitem__, item[4:])
         return super(ConfigHandler, self).__getattribute__(item)
@@ -187,8 +187,15 @@ class ConfigHandler(CaseInsensitiveDict):
         if not os.path.exists(norm_p):
             os.makedirs(norm_p)
 
-    def setup_config(self, project_url=None, project_folder=None, project_name=None,
-                     overwrite=False, bypass_robots=False, debug=False, delay=None, threaded=None):
+    def setup_config(self,
+                     project_url=None,
+                     project_folder=None,
+                     project_name=None,
+                     overwrite=False,
+                     bypass_robots=False,
+                     debug=False,
+                     delay=None,
+                     threaded=None):
         """Sets up the complete config parts which requires a project_url to be present.
 
         Complete configuration is done here and subject to change according to application structure

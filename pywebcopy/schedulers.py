@@ -26,8 +26,13 @@ class Index(RecentOrderedDict):
 
     ..todo:: make it database synced
     """
+    def __init__(self, *args, **kwargs):
+        super(Index, self).__init__(*args, **kwargs)
+        self.lock = threading.Lock()
+
     def add_entry(self, k, v):
-        self.__setitem__(k, v)
+        with self.lock:
+            self.__setitem__(k, v)
 
     def get_entry(self, k, default=None):
         return self.get(k, default=default)
@@ -121,7 +126,7 @@ class SchedulerBase(object):
             self.logger.error(
                 "Expected url of string type, got %r" % resource.url)
             return False
-        elif isinstance(resource, HTMLResource) and self.block_external_domains:
+        if isinstance(resource, HTMLResource) and self.block_external_domains:
             # FIXME: Change the algorithm to evaluate redirects.
             # print(resource.url, resource.context)
             if not resource.url.startswith(resource.context.base_url):

@@ -149,12 +149,12 @@ class WebPage(HTMLResource):
     def get_links(self):
         return (e[2] for e in self.parse() if e[0].tag == 'a')
 
-    def scrape_html(self, url):
+    def scrap_html(self, url):
         response = self.session.get(url)
         response.raise_for_status()
         return response.content
 
-    def scrape_links(self, url):
+    def scrap_links(self, url):
         response = self.session.get(url)
         response.raise_for_status()
         return response.links()
@@ -206,6 +206,9 @@ class WebPage(HTMLResource):
 
 
 class Crawler(WebPage):
+
+    def refresh(self):
+        raise NotImplementedError()
 
     @classmethod
     def from_config(cls, config):

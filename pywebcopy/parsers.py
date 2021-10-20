@@ -3,7 +3,6 @@
 import inspect
 import logging
 import re
-from collections import Iterator
 
 import requests
 from lxml import etree
@@ -16,6 +15,7 @@ from lxml.html.defs import link_attrs
 from six import integer_types
 from six import string_types
 from six.moves.urllib.parse import urljoin
+from six.moves.collections_abc import Iterator
 
 __all__ = ['iterparse', 'MultiParser', 'Element', 'unquote_match', 'links']
 
@@ -212,6 +212,19 @@ def links(el):
         valuetype = el.get('valuetype') or ''
         if valuetype.lower() == 'ref':
             yield el, 'value', el.get('value'), 0
+    elif tag == 'script' and el.text:
+        urls = [
+            # (start_pos, url)
+            unquote_match(match.group(1), match.start(1))[::-1]
+            for match in _iter_css_urls(el.text)
+        ]
+        if urls:
+            # sort by start pos to bring both match sets back into order
+            # and reverse the list to report correct positions despite
+            # modifications
+            urls.sort(reverse=True)
+            for start, url in urls:
+                yield el, None, url, start
     elif tag == 'style' and el.text:
         urls = [
                    # (start_pos, url)
