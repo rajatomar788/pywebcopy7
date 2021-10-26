@@ -20,7 +20,6 @@ from six import binary_type
 from six import string_types
 from six.moves.urllib.request import pathname2url
 
-from .__version__ import __title__
 from .__version__ import __version__
 from .helpers import cached_property
 from .parsers import iterparse
@@ -30,6 +29,8 @@ from .urls import relate
 
 logger = logging.getLogger(__name__)
 
+#: Binary file permission mode
+fd_mode = 0o777
 #: Binary file flags for kernel based io
 fd_flags = os.O_CREAT | os.O_WRONLY
 if hasattr(os, 'O_BINARY'):
@@ -42,6 +43,7 @@ def make_fd(location, url=None, overwrite=False):
     """Creates a kernel based file descriptor which should be used
     to write binary data onto the files.
     """
+    location = os.path.normpath(location)
     # Sub-directories creation which suppresses exceptions
     base_dir = os.path.dirname(location)
     try:
@@ -62,12 +64,13 @@ def make_fd(location, url=None, overwrite=False):
             "[File] Sub-directories created for: <%r>" % location)
     try:
 
-        sys.audit("%s.resource" % __title__, location)
+        # sys.audit("%s.resource" % __title__, location)
+        sys.audit("os.open", location)
         if overwrite:
-            fd = os.open(location, fd_flags | os.O_TRUNC, 0o600)
+            fd = os.open(location, fd_flags | os.O_TRUNC, fd_mode)
         else:
             # raises FileExistsError if file exists
-            fd = os.open(location, fd_flags | os.O_EXCL, 0o600)
+            fd = os.open(location, fd_flags | os.O_EXCL, fd_mode)
 
     except (OSError, PermissionError) as e:
         if e.errno == errno.EEXIST:
@@ -126,7 +129,7 @@ def urlretrieve(url, location, **params):
 
     :param url: url of the resource to be retrieved.
     :param location: destination for the resource.
-    :params \*\*params: parameters for the :func:`requests.get`.
+    :param params: parameters for the :func:`requests.get`.
     :return: location of the file retrieved.
     """
     if not isinstance(url, string_types):
@@ -379,8 +382,7 @@ class HTMLResource(GenericResource):
                 "Resource at [%s] is NOT ok and will be NOT processed." % self.url)
             return super(HTMLResource, self)._retrieve()
 
-        parsing_buffer = self.parse()
-        context = self.extract_children(parsing_buffer)
+        context = self.extract_children(self.parse())
 
         # WaterMarking :)
         context.root.insert(0, HtmlComment(self._get_watermark()))
@@ -390,7 +392,7 @@ class HTMLResource(GenericResource):
             self.filepath, self.context.url, overwrite=True)
 
         self.logger.debug('Retrieved content from the url: [%s]' % self.url)
-        del parsing_buffer, context
+        del context
         return self.filepath
 
     def _get_watermark(self):

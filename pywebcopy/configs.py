@@ -91,7 +91,7 @@ default_config = {
     'http_headers': default_headers(**safe_http_headers),
 
     # TODO: Disabled for now until I figure it out.
-    'allowed_file_types': safe_file_types,
+    # 'allowed_file_types': safe_file_types,
 
     # TODO: domain blocking and whitelisting
 }

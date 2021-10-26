@@ -98,8 +98,7 @@ class WebPage(HTMLResource):
         return raw.read(), self.encoding
 
     def refresh(self):
-        raise NotImplementedError()
-        # self.set_response(self.session.get(self.url, stream=True))
+        self.set_response(self.session.get(self.url, stream=True))
 
     def get_forms(self):
         """Returns a list of form elements available on the page."""

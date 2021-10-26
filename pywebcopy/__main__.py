@@ -30,22 +30,24 @@ options.add_option('-t', '--tests', action='store_true', help='Runs tests for th
 parser.add_option_group(options)
 
 #: Required params
-parser.add_option('--url', type=str, help='url of the entry point to be retrieved.')
-parser.add_option('--location', type=str, help='Location where files are to be stored.')
+parser.add_option('--url', type='string', help='url of the entry point to be retrieved.')
+parser.add_option('--location', type='string', help='Location where files are to be stored.')
 
 #: Optional params
-parser.add_option('-n', '--name', default=None, action='store_true', help='Project name of this run.')
+parser.add_option('-n', '--name', default=None, type='string', help='Project name of this run.')
+parser.add_option('-d', '--delay', type='float', help="Delay between consecutive requests to the server.")
+
+#: Optional flags
 parser.add_option('--bypass_robots', default=True, action='store_true', help='Bypass the robots.txt restrictions.')
 parser.add_option('--threaded', default=False, action='store_true', help='Use threads for faster downloading.')
 parser.add_option('-q', '--quite', default=False, action='store_true', help='Suppress the logging from this library.')
 parser.add_option('--pop', default=False, action='store_true',
                   help='open the html page in default browser window after finishing the task.')
-parser.add_option('-d', '--delay', type=int, help="Delay between consecutive requests to the server.")
 
 args, remainder = parser.parse_args()
 
 # type checks
-if args.page or args.site:
+if bool(args.page) or bool(args.site):
     if not args.url or not isinstance(args.url, six.string_types):
         parser.error("--url option requires 1 string type argument")
     if args.location and not isinstance(args.location, six.string_types):
@@ -77,3 +79,4 @@ elif args.tests:
     os.system('%s -m unittest discover -s pywebcopy/tests' % sys.executable)
 else:
     parser.print_help()
+    sys.exit(1)

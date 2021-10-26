@@ -195,22 +195,26 @@ class ThreadingScheduler(Scheduler):
     def __init__(self, *args, **kwargs):
         super(ThreadingScheduler, self).__init__(*args, **kwargs)
         self.threads = weakref.WeakSet()
+        self.timeout = 1
 
     def __del__(self):
         self.close()
 
     def close(self, timeout=None):
+        if not timeout:
+            timeout = self.timeout
         threads = self.threads
         self.threads = None
         for thread in threads:
-            if thread.is_alive():
+            if thread.is_alive() and thread is not threading.current_thread():
                 thread.join(timeout)
 
     def _handle_resource(self, resource):
         def run(r):
-            self.logger.debug('Scheduler trying to get resource at: [%s]' % resource.url)
-            r.response = r.session.get(r.context.url)
-            self.logger.debug('Scheduler running handler for: [%s]' % resource.url)
+            self.logger.debug('Scheduler trying to get resource at: [%s]' % r.url)
+            # r.response = r.session.get(r.context.url)
+            r.get(r.context.url)
+            self.logger.debug('Scheduler running handler for: [%s]' % r.url)
             r.retrieve()
             return r.context.url, r.filepath
         thread = threading.Thread(target=run, args=(resource,))

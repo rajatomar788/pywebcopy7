@@ -575,7 +575,7 @@ def url2path(url,
 
     ..usage::
         >>> url2path('http://nx-domain.com/path/to/file?q=value')
-        >>> r'nx-domain.com\\path\\to\\file'
+        >>> r'nx-domain.com\\path\\to\\file_q_value'
 
     """
     url, base_url, base_path, prefix, suffix, _encode = _coerce_args(

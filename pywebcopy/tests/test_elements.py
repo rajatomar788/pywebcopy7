@@ -1,3 +1,46 @@
+# Copyright 2020; Raja Tomar
+# See license for more details
+import os.path
+import shutil
+import unittest
+import tempfile
+
+from pywebcopy.elements import make_fd
+
+
+class TestFileDescriptorMaking(unittest.TestCase):
+    def setUp(self):
+        self.base_dir = os.path.join(tempfile.gettempdir(), 'make_fd_test_dir')
+
+    def tearDown(self):
+        shutil.rmtree(self.base_dir)
+
+    def test_standard_fd_return(self):
+        fd = make_fd(os.path.join(self.base_dir, 'standard_fd_return'))
+        self.assertNotEqual(fd, -1)
+        os.close(fd)
+
+    def test_making_dirs(self):
+        ans = os.path.join(self.base_dir, 'file')
+        fd = make_fd(ans)
+        self.assertNotEqual(fd, -1)
+        self.assertTrue(os.path.exists(self.base_dir))
+        self.assertTrue(os.path.exists(ans))
+        os.close(fd)
+
+    def test_making_base_dirs_of_file(self):
+        ans = os.path.join(self.base_dir, 'file')
+        self.assertFalse(os.path.exists(self.base_dir))
+        self.assertFalse(os.path.exists(ans))
+        fd = make_fd(ans)
+        self.assertNotEqual(fd, -1)
+        self.assertTrue(os.path.exists(self.base_dir))
+        self.assertTrue(os.path.exists(ans))
+        os.close(fd)
+
+
+from six.moves.SimpleHTTPServer import SimpleHTTPRequestHandler
+
 # import unittest
 #
 # from six import BytesIO
