@@ -42,6 +42,8 @@ if hasattr(os, 'O_NOFOLLOW'):
 def make_fd(location, url=None, overwrite=False):
     """Creates a kernel based file descriptor which should be used
     to write binary data onto the files.
+
+    :rtype: int
     """
     location = os.path.normpath(location)
     # Sub-directories creation which suppresses exceptions
@@ -98,6 +100,7 @@ def retrieve_resource(content, location, url=None, overwrite=False):
     :param url: (optional) url of the resource used for logging purposes.
     :param overwrite: (optional) whether to overwrite an existing file.
     :return: rendered location or False if failed.
+    :rtype: string_types
     """
     if content is None:
         raise ValueError("Content can't be of NoneType.")
@@ -131,6 +134,7 @@ def urlretrieve(url, location, **params):
     :param location: destination for the resource.
     :param params: parameters for the :func:`requests.get`.
     :return: location of the file retrieved.
+    :rtype: string_types
     """
     if not isinstance(url, string_types):
         raise TypeError("Expected string type, got %r" % url)
@@ -173,6 +177,8 @@ class GenericResource(object):
         self.close()
 
     def close(self):
+        """Releases the underlying urllib connection and
+        then deletes the response"""
         if self.response is not None:
             if hasattr(self.response, 'raw'):
                 if hasattr(self.response.raw, 'release_conn'):
@@ -181,6 +187,8 @@ class GenericResource(object):
 
     @cached_property
     def filepath(self):
+        """Returns if available a valid filepath
+         where this file should be written."""
         if self.context is None:
             raise AttributeError("Context attribute is not set.")
         if self.response is not None:
@@ -190,22 +198,28 @@ class GenericResource(object):
 
     @cached_property
     def filename(self):
+        """Returns a valid filename of this resource if available."""
         return os.path.basename(self.filepath or '')
 
     @cached_property
     def content_type(self):
+        """Returns a mimetype descriptor of this resource if available."""
         if self.response is not None and 'Content-Type' in self.response.headers:
             return get_content_type_from_headers(self.response.headers)
         return ''
 
     @cached_property
     def url(self):
+        """Returns the actual url of this resource which is resolved if
+        there were any redirects."""
         if self.response is not None:
             self.context = self.context.with_values(url=self.response.url)
         return self.context.url
 
     @cached_property
     def encoding(self):
+        """Returns an explicit encoding if defined in the config else
+        the encoding reported by the server."""
         if self.response is not None:
             #: Explicit encoding takes precedence
             return self.config.get(
@@ -216,24 +230,30 @@ class GenericResource(object):
         'text/htm',
         'text/html',
         'text/xhtml'
-    ])
+    ]).
+    html_content_types.__doc__ = "Set of valid html mimetypes."
 
     def viewing_html(self):
+        """Checks whether the current resource is a html type or not."""
         return self.content_type in self.html_content_types
 
     css_content_types = tuple([
         'text/css',
     ])
+    css_content_types.__doc__ = "Set of valid css mimetypes."
 
     def viewing_css(self):
+        """Checks whether the current resource is a css type or not."""
         return self.content_type in self.css_content_types
 
     js_content_types = tuple([
         'text/javascript',
         'application/javascript'
     ])
+    js_content_types.__doc__ = "Set of valid javascript mimetypes."
 
     def viewing_js(self):
+        """Checks whether the current resource is a javascript type or not."""
         return self.content_type in self.js_content_types
 
     def set_response(self, response):
@@ -247,13 +267,12 @@ class GenericResource(object):
         self.__dict__.pop('url', None)
         self.__dict__.pop('filepath', None)
         self.__dict__.pop('filename', None)
-        if response.ok:
+        if hasattr(response, 'ok') and response.ok:
             self.__dict__.pop('content_type', None)
             self.__dict__.pop('encoding', None)
             self.context = self.context.with_values(
                 url=response.url,
-                content_type=self.content_type
-            )
+                content_type=self.content_type)
 
     def request(self, method, url, **params):
         """Fetches the Html content from Internet using the requests.
@@ -275,12 +294,50 @@ class GenericResource(object):
             self.session.request(method, url, stream=True, **params))
 
     def get(self, url, **params):
+        """Initiates an `get` request for the given url.
+        It uses the `.set_response()` method underneath to
+        process the returned response.
+        It is used to manually fetch the starting web-page.
+
+        Example:
+            wp = WebPage()
+            wp.get('http://www.example.com/')
+            wp.retrieve()
+        """
         return self.request('GET', url, **params)
 
     def post(self, url, **params):
+        """Initiates an `post` request for the given url.
+        It uses the `.set_response()` method underneath to
+        process the returned response.
+        It is required to submit forms.
+
+        Example:
+            wp = WebPage()
+            wp.post('http://www.example.com/', data={'key': 'value'})
+            wp.retrieve()
+        """
         return self.request('POST', url, **params)
 
     def get_source(self, buffered=False):
+        """
+        Returns a tuple with the response contents in either file-like object
+        i.e. `RewindableResponse` if `buffered=True` or string format
+        if ` buffered=False` and the encoding from the `.encoding` attribute.
+
+        Example:
+            wp.get(url=...)
+            wp.get_source(buffered=False)
+            "<html><head></head><body>...</body></html>"
+            wp.get_source(buffered=True)
+            "<RewindableResponse(url=...)>"
+
+        Note:
+            An Error would be raised if the `.context` attribute is not set.
+            or the `.response` attribute is not set.
+
+        :rtype: string_types | RewindableResponse
+        """
         if self.context is None:
             raise ValueError("Context not set.")
         if self.context.base_path is None:
@@ -337,7 +394,9 @@ class GenericResource(object):
         return self.filepath
 
     def resolve(self, parent_path=None):
-        """Calculates the location at which this response should be stored as a file."""
+        """Returns a relative url at which this resource should be accessed
+        by the parent file.
+        """
         filepath = self.filepath
         if not isinstance(filepath, string_types):
             raise ValueError("Invalid filepath [%r]" % filepath)
@@ -350,11 +409,24 @@ class HTMLResource(GenericResource):
     """Interpreter for resource written in or reported as html."""
 
     def parse(self, **kwargs):
+        """Returns an `pywebcopy.parsers.iterparse` instance with
+        the file-object returned from the `.get_source(buffered=True)`.
+
+        :params kwargs: options to be passed to the `iterparse`.
+        """
         source, encoding = self.get_source(buffered=True)
         return iterparse(
             source, encoding, include_meta_charset_tag=True, **kwargs)
 
     def extract_children(self, parsing_buffer):
+        """
+        Iterates over the `pywebcopy.parsers.iterparse` object and
+        extract the elements which are handed over to the `scheduler`
+        for processing. Then the final path of the element is updated
+        in the `pywebcopy.parsers.iterparse` object.
+
+        :param parsing_buffer: `iterparse` object.
+        """
         location = self.filepath
 
         for elem, attr, url, pos in parsing_buffer:
@@ -407,9 +479,13 @@ class HTMLResource(GenericResource):
 
 class CSSResource(GenericResource):
     def parse(self):
+        """Returns the `.get_source(buffered=False)`."""
         return self.get_source(buffered=False)
 
     def repl(self, match, encoding=None, fmt=None):
+        """
+        Schedules the linked files for downloading then resolves their references.
+        """
         fmt = fmt or '%s'
 
         url, _ = unquote_match(match.group(1).decode(encoding), match.start(1))
@@ -432,7 +508,10 @@ class CSSResource(GenericResource):
 
     # noinspection PyTypeChecker
     def extract_children(self, parsing_buffer):
-        """Schedules the linked files for downloading then resolves their references."""
+        """
+        Runs the regex over the source to find the urls that are linked
+        within the css file or style tag using the `url()` construct.
+        """
         source, encoding = parsing_buffer
         source = re.sub(
             (r'url\((' + '["][^"]*["]|' + "['][^']*[']|" + r'[^)]*)\)').encode(encoding),
@@ -470,9 +549,13 @@ class CSSResource(GenericResource):
 
 class JSResource(GenericResource):
     def parse(self):
+        """Returns the `.get_source(buffered=False)`."""
         return self.get_source(buffered=False)
 
     def repl(self, match, encoding=None, fmt=None):
+        """
+        Schedules the linked files for downloading then resolves their references.
+        """
         fmt = fmt or '%s'
 
         url, _ = unquote_match(match.group(1).decode(encoding), match.start(1))
@@ -495,9 +578,11 @@ class JSResource(GenericResource):
 
     # noinspection PyTypeChecker
     def extract_children(self, parsing_buffer):
-        """Schedules the linked files for downloading then resolves their references.
+        """
+        Runs the regex over the source to find the urls that are linked
+        within the js file or script tag using the `url()` construct.
 
-        ..fixme::
+        ..todo::
             It only recognises one type of url inside of the js.
             i.e. `url('example.com')`. Make it universal.
         """
@@ -533,7 +618,7 @@ class JSResource(GenericResource):
 
 
 class GenericOnlyResource(GenericResource):
-    """Only retrieves a resource if it is not HTML."""
+    """Only retrieves a resource if it is NOT HTML."""
 
     def _retrieve(self):
         if self.viewing_html():

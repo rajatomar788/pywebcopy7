@@ -111,6 +111,7 @@ class SchedulerBase(object):
                 "Invalid url schema: [%s] for url: [%s]"
                 % (scheme, url))
             return False
+        #: TODO: Add a user validation of the url before blocking
         return True
 
     def validate_resource(self, resource):
@@ -195,7 +196,7 @@ class ThreadingScheduler(Scheduler):
     def __init__(self, *args, **kwargs):
         super(ThreadingScheduler, self).__init__(*args, **kwargs)
         self.threads = weakref.WeakSet()
-        self.timeout = 1
+        self.timeout = None
 
     def __del__(self):
         self.close()
@@ -352,8 +353,9 @@ def crawler_scheduler():
     return ans
 
 
-def threading_default_scheduler():
+def threading_default_scheduler(timeout=None):
     ans = ThreadingScheduler()
+    ans.timeout = timeout
     fac = default_scheduler()
     ans.default = fac.default
     ans.data = fac.data
@@ -361,8 +363,9 @@ def threading_default_scheduler():
     return ans
 
 
-def threading_crawler_scheduler():
+def threading_crawler_scheduler(timeout=None):
     ans = threading_default_scheduler()
+    ans.timeout = timeout
     for k in ans.meta_tags:
         ans.register_handler(k, HTMLResource)
     for k in ans.external_tags:

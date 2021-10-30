@@ -693,7 +693,9 @@ class Context(namedtuple('Context', context_attrs)):
 
     def create_new_from_url(self, url):
         """Creates a new identical context with only difference of the url."""
-        return self.with_values(url=urljoin(self.base_url, url), content_type=None)
+        #: The base url for the new url should be the url of the parent context
+        #: and not the absolute parent url. Learned a lesson today!
+        return self.with_values(url=urljoin(self.url, url), content_type=None)
 
     def resolve(self):
         prefix = suffix = None

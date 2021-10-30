@@ -31,7 +31,8 @@ class UrlDisallowed(RequestException):
 
 
 def default_headers(**kwargs):
-    """
+    """Returns a standard set of http headers.
+
     :rtype: requests.structures.CaseInsensitiveDict
     """
     return CaseInsensitiveDict({
@@ -74,7 +75,7 @@ class Session(requests.Session):
     def __init__(self):
         super(Session, self).__init__()
         self.headers = default_headers()
-        self.obey_robots_txt = True
+        self.follow_robots_txt = True
         self.robots_registry = {}
         self.domain_blacklist = set()
         self.logger = logger.getChild(self.__class__.__name__)
@@ -90,15 +91,15 @@ class Session(requests.Session):
         self.mount('https://', cachecontrol.CacheControlAdapter())
         self.mount('http://', cachecontrol.CacheControlAdapter())
 
-    def set_obey_robots_txt(self, b):
+    def set_follow_robots_txt(self, b):
         """Set whether to follow the robots.txt rules or not.
         """
-        self.obey_robots_txt = bool(b)
+        self.follow_robots_txt = bool(b)
         self.logger.debug('Set obey_robots_txt to [%r] for [%r]' % (b, self))
 
     #: backward compatibility
     def set_bypass(self, b):
-        self.set_obey_robots_txt(not b)
+        self.set_follow_robots_txt(not b)
 
     def load_rules_from_url(self, robots_url, timeout=None):
         """Manually load the robots.txt file from the server.
@@ -144,6 +145,20 @@ class Session(requests.Session):
         _parser.modified()
         return _parser
 
+    # def validate_url(self, url):
+    #     if not isinstance(url, string_types):
+    #         self.logger.error(
+    #             "Expected string type, got %r" % url)
+    #         return False
+    #     scheme, host, port, path, query, frag = urlparse(url)
+    #     if scheme in self.invalid_schemas:
+    #         self.logger.error(
+    #             "Invalid url schema: [%s] for url: [%s]"
+    #             % (scheme, url))
+    #         return False
+    #     #: TODO: Add a user validation of the url before blocking
+    #     return True
+
     def is_allowed(self, request, timeout=None):
         s, n, p, q, f = urlsplit(request.url)
 
@@ -153,7 +168,7 @@ class Session(requests.Session):
             return False
 
         #: if set to not follow the robots.txt
-        if not self.obey_robots_txt:
+        if not self.follow_robots_txt:
             return True
 
         robots_url = urlunsplit((s, n, 'robots.txt', None, None))
@@ -199,8 +214,8 @@ class Session(requests.Session):
         """Creates a new instance of Session object using the config object."""
         ans = cls()
         ans.headers = config.get('http_headers', default_headers())
-        ans.obey_robots_txt = not config.get('bypass_robots')
-        ans.delay = config.get('delay')
+        ans.follow_robots_txt = not config.get('bypass_robots')
+        ans.delay = config.get_delay()
         if config.get('http_cache'):
             ans.enable_http_cache()
         # XXX I don't know if it will work?

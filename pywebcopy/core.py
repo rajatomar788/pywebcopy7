@@ -22,24 +22,36 @@ logger = logging.getLogger(__name__)
 
 
 class WebPage(HTMLResource):
+    """
+    WebPage built upon HTMLResource element.
+    It provides various utilities like form-filling,
+    external response processing, getting list of links,
+    dumping html and opening the html in the browser.
+    """
     @classmethod
     def from_config(cls, config):
+        """It creates a `WebPage` object from a set config object.
+        Under the hood it checks whether the config is set or not,
+        then it creates a `session` using the `config.create_session()` method.
+        It then creates a `scheduler` based on whether the threading is enabled or not.
+        It also defines a `context` object which stores the path metadata for this structure.
+        """
         if config and not config.is_set():
             raise AttributeError("Configuration is not setup.")
 
         session = config.create_session()
         if config.get('threaded'):
-            scheduler = threading_default_scheduler()
+            scheduler = threading_default_scheduler(
+                timeout=config.get_thread_join_timeout())
         else:
             scheduler = default_scheduler()
         context = config.create_context()
         ans = cls(session, config, scheduler, context)
-        # url = parse_url(config.get('project_url'))
-        # if check_connection(url.hostname, url.port, 0.01):
-        #     ans.get(config.get('project_url'))
+        # XXX: Check connection to the url here?
         return ans
 
-    def __str__(self):
+    def __repr__(self):
+        """Short representation of this instance."""
         return '<{}: {}>'.format(self.__class__.__name__, self.url)
 
     element_map = property(
@@ -48,37 +60,45 @@ class WebPage(HTMLResource):
     )
 
     def set_response(self, response):
+        """
+        Set an explicit `requests.Response` object directly.
+        It accepts a `requests.Response` object and wraps it in a `RewindableResponse` object.
+        It also enables decoding in the original `urllib3` response object.
+
+        You can use it like this
+            import requests
+            resp = requests.get('https://www.httpbin.org/')
+            wp = WebPage()
+            wp.set_response(resp)
+            wp.get_forms()
+        """
         if not isinstance(response, Response):
-            raise ValueError(
-                "Expected %r, got %r" % (Response, response))
-        # Wrap the response file with a wrapper that will cache the
-        #   response when the stream has been consumed.
-        # urllib_response = response.raw
-        # urllib_response._fp = CallbackFileWrapper(
-        #     urllib_response._fp,
-        #     urllib_response.release_conn,
-        # )
-        # if urllib_response.chunked:
-        #     super_update_chunk_length = urllib_response._update_chunk_length
-        #
-        #     def _update_chunk_length(s):
-        #         super_update_chunk_length()
-        #         if s.chunk_left == 0:
-        #             s._fp.close()
-        #
-        #     urllib_response._update_chunk_length = types.MethodType(
-        #         _update_chunk_length, urllib_response
-        #     )
+            raise ValueError("Expected %r, got %r" % (Response, response))
         response.raw.decode_content = True
         response.raw = RewindableResponse(response.raw)
         return super(WebPage, self).set_response(response)
 
     def get_source(self, buffered=False):
-        """Returns a rewindable io wrapper.
+        """Returns the `requests.Response` object
+        in a rewindable io wrapper. Contents can be consumed then
+        the `.rewind()` method should be called to restore the contents
+        of the original response.
+
+            wp = WebPage()
+            wp.get('http://httpbin.org/forms/')
+            src = WebPage.get_source(buffered=True)
+            contents = src.read()
+            src.rewind()
+
+        :param buffered: whether to return an Readable file-like object
+            or just a plain string.
+        :rtype: RewindableResponse
         """
         raw = getattr(self.response, 'raw', None)
         if raw is None:
-            raise ValueError("HTTP Response is not set!")
+            raise ValueError(
+                "HTTP Response is not set at the `.response` attribute!"
+                "Use the `.get()` method or `.set_response()` methods to set it.")
 
         # if raw.closed:
         #     raise ValueError(
@@ -98,6 +118,7 @@ class WebPage(HTMLResource):
         return raw.read(), self.encoding
 
     def refresh(self):
+        """Re-fetches the resource from the internet using the session."""
         self.set_response(self.session.get(self.url, stream=True))
 
     def get_forms(self):
@@ -112,9 +133,9 @@ class WebPage(HTMLResource):
 
     def submit_form(self, form, **extra_values):
         """
-        Helper function to submit a form.
+        Helper function to submit a `lxml` form.
 
-        You can use this like::
+        Example:
 
             wp = WebPage()
             wp.get('http://httpbin.org/forms/')
@@ -143,22 +164,36 @@ class WebPage(HTMLResource):
         return self.request(form.method, url, data=values)
 
     def get_files(self):
+        """
+        Returns a list of urls, css, js, images etc.
+        """
         return (e[2] for e in self.parse())
 
     def get_links(self):
+        """
+        Returns a list of urls in the anchor tags only.
+        """
         return (e[2] for e in self.parse() if e[0].tag == 'a')
 
     def scrap_html(self, url):
+        """Returns the html of the given url.
+
+        :param url: address of the target page.
+        """
         response = self.session.get(url)
         response.raise_for_status()
         return response.content
 
     def scrap_links(self, url):
+        """Returns all the links from a given url.
+
+        :param url: address of the target page.
+        """
         response = self.session.get(url)
         response.raise_for_status()
         return response.links()
 
-    def save_html(self, filename=None):
+    def dump_html(self, filename=None):
         """Saves the html of the page to a default or specified file.
 
         :param filename: path of the file to write the contents to
@@ -205,23 +240,27 @@ class WebPage(HTMLResource):
 
 
 class Crawler(WebPage):
-
-    def refresh(self):
-        raise NotImplementedError()
-
     @classmethod
     def from_config(cls, config):
+        """
+        It creates a `Crawler` object from a set config object.
+        Under the hood it checks whether the config is set or not,
+        then it creates a `session` using the `config.create_session()` method.
+        It then creates a `scheduler` based on whether the threading is enabled or not.
+        The scheduler is different from the `WebPage` objects scheduler due to its
+        ability to process the anchor tags links to different pages.
+        It also defines a `context` object which stores the path metadata for this structure.
+        """
         if config and not config.is_set():
             raise AttributeError("Configuration is not setup.")
 
         session = config.create_session()
         if config.get('threaded'):
-            scheduler = threading_crawler_scheduler()
+            scheduler = threading_crawler_scheduler(
+                timeout=config.get_thread_join_timeout())
         else:
             scheduler = crawler_scheduler()
         context = config.create_context()
         ans = cls(session, config, scheduler, context)
-        # url = parse_url(config.get('project_url'))
-        # if check_connection(url.hostname, url.port, 0.01):
-        #     ans.get(config.get('project_url'))
+        # XXX: Check connection to the url here?
         return ans

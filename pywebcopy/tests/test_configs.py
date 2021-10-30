@@ -20,7 +20,7 @@ class TestConfigs(unittest.TestCase):
         ans.__setitem__('http_headers', {'User-Agent': 'test-bot'})
         sess = ans.create_session()
         self.assertTrue(isinstance(sess, Session))
-        self.assertEqual(sess.obey_robots_txt, False)
+        self.assertEqual(sess.follow_robots_txt, False)
         from cachecontrol import CacheControlAdapter
         for i in sess.adapters.values():
             self.assertTrue(isinstance(i, CacheControlAdapter))
@@ -41,7 +41,7 @@ class TestConfigs(unittest.TestCase):
         self.assertTrue(isinstance(page.session, Session))
         self.assertTrue(isinstance(page.context, Context))
         self.assertTrue(isinstance(page.scheduler, Scheduler))
-        self.assertEqual(page.session.obey_robots_txt, not ans.get('bypass_robots'))
+        self.assertEqual(page.session.follow_robots_txt, not ans.get('bypass_robots'))
         self.assertEqual(page.session.delay, ans.get('delay'))
         self.assertEqual(page.session.headers,
                          configs.default_headers(**configs.safe_http_headers))

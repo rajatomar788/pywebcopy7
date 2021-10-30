@@ -81,6 +81,7 @@ default_config = {
     'project_name': None,
     'project_folder': None,
     'threaded': None,
+    'thread_join_timeout': None,
     'tree_type': HIERARCHY,
 
     # TODO: Allow a `last-modified-time` overwrite mode
@@ -89,6 +90,7 @@ default_config = {
     'bypass_robots': False,
     'http_cache': False,
     'http_headers': default_headers(**safe_http_headers),
+    'delay': None,
 
     # TODO: Disabled for now until I figure it out.
     # 'allowed_file_types': safe_file_types,
@@ -163,15 +165,14 @@ class ConfigHandler(CaseInsensitiveDict):
         :param project_name: new name of the project
         :param project_folder: folder where to store all the downloaded files
         """
-        if not isinstance(project_name, str):
+        if not isinstance(project_name, string_types):
             raise ConfigError("project_name value must be a string")
 
-        if not isinstance(project_folder, str):
+        if not isinstance(project_folder, string_types):
             raise ConfigError("project_folder value must be a string!")
 
         if os.altsep:
             project_folder = project_folder.replace(os.altsep, os.sep)
-
         if project_folder.find(os.sep) < 0:  # pragma: no cover
             raise ConfigError("Project_folder path doesn't seem to be a valid path.")
 
@@ -201,13 +202,11 @@ class ConfigHandler(CaseInsensitiveDict):
         Complete configuration is done here and subject to change according to application structure
         You are advised to use only the .setup_path() method if you get any unusual behaviour
         """
-        self.update(
-            overwrite=overwrite,
-            bypass_robots=bypass_robots,
-            debug=debug,
-            delay=delay,
-            threaded=threaded
-        )
+        self.set_overwrite(overwrite)
+        self.set_bypass_robots(bypass_robots)
+        self.set_debug(debug)
+        self.set_delay(delay)
+        self.set_threaded(threaded)
         self.set_project_url(project_url)
         self.setup_paths(project_folder, project_name)
 
@@ -252,6 +251,17 @@ def get_config(project_url,
                threaded=None):
     """Create a ConfigHandler instance and return it.
     If the project_folder is not supplied it will use the users Tempdir.
+
+    :param project_url: project_url of the web page to work with
+    :type project_url: str
+    :param project_folder: folder in which the files will be downloaded
+    :type project_folder: str
+    :param project_name: name of the project to distinguish it
+    :type project_name: str | None
+    :param bypass_robots: whether to follow the robots.txt rules or not
+    :param debug: whether to print deep logs or not.
+    :param delay: amount of delay between two concurrent requests to a same server.
+    :param threaded: whether to use threading or not (it can break some site).
     """
     if not isinstance(project_url, string_types):
         raise ConfigError("Expected string type, got %r" % project_url)
